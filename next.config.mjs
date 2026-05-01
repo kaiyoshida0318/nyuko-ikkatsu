@@ -1,11 +1,9 @@
-import type { NextConfig } from "next";
-
-const repo = "nyuko-ikkatsu";
-const isProd = process.env.NODE_ENV === "production";
-
-const nextConfig: NextConfig = {
+﻿/** @type {import('next').NextConfig} */
+const nextConfig = {
   output: "export",
-  basePath: isProd ? `/${repo}` : "",
+  trailingSlash: true,
+  basePath: process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "",
+  assetPrefix: process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu/" : "",
   images: {
     unoptimized: true,
   },
