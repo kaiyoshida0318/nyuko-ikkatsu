@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, DragEvent, KeyboardEvent, ReactNode, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, DragEvent, ReactNode, useMemo, useState } from 'react'
 import { saveAs } from 'file-saver'
 import { detectFileRole, fileRoleLabel } from '@/lib/fileRoles'
 import { makeKintoneCsvBlob, makeNeCsvBlob, makeNyukoXlsxBlob, makeZipBlob } from '@/lib/formatter'
@@ -8,7 +8,6 @@ import { runNyukoProcess } from '@/lib/process'
 import type { ExtractedRow, MatchWarning, ProcessResult, SelectedFiles } from '@/lib/types'
 
 type PreviewTab = 'extracted' | 'ne' | 'kintone' | 'nyuko'
-type SpecificRole = 'packing' | 'orders' | 'master'
 
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
@@ -42,58 +41,17 @@ function mergeFiles(current: SelectedFiles, incomingFiles: File[]): SelectedFile
   return next
 }
 
-function FileCard({
-  title,
-  description,
-  isDragging = false,
-  onOpen,
-  onDragEnter,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  children,
-}: {
-  title: string
-  description: string
-  isDragging?: boolean
-  onOpen: () => void
-  onDragEnter?: (event: DragEvent<HTMLElement>) => void
-  onDragOver?: (event: DragEvent<HTMLElement>) => void
-  onDragLeave?: (event: DragEvent<HTMLElement>) => void
-  onDrop?: (event: DragEvent<HTMLElement>) => void
-  children: ReactNode
-}) {
-  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onOpen()
-    }
-  }
-
+function FileCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <section
-      className={`file-card ${isDragging ? 'is-specific-dragging' : ''}`}
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={handleKeyDown}
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      <div className="file-card-head">
-        <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
-        </div>
-        <span className="specific-drop-badge">{isDragging ? 'ここにドロップ' : 'ドロップor選択'}</span>
+    <section className="file-card">
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
       </div>
       {children}
     </section>
   )
 }
-
 
 function Pill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'good' | 'warn' | 'danger' }) {
   return <span className={`pill pill--${tone}`}>{children}</span>
@@ -106,7 +64,6 @@ function EmptyText({ children }: { children: ReactNode }) {
 function WarningList({ warnings }: { warnings: MatchWarning[] }) {
   const noProduct = warnings.filter((warning) => warning.type === 'no_product')
   const noKey = warnings.filter((warning) => warning.type === 'no_key')
-  const quantityMismatch = warnings.filter((warning) => warning.type === 'quantity_mismatch')
 
   if (warnings.length === 0) {
     return (
@@ -135,23 +92,6 @@ function WarningList({ warnings }: { warnings: MatchWarning[] }) {
               <div className="warning-item" key={`${warning.productCode}-${index}`}>
                 <strong>{warning.productCode}</strong>
                 <span>届いたキー: {warning.deliveredKeys.join(' / ')}</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-
-      {quantityMismatch.length > 0 && (
-        <details className="warning-group warning-group--warn" open>
-          <summary>数量不一致 {quantityMismatch.length}件</summary>
-          <div className="warning-list">
-            {quantityMismatch.map((warning, index) => (
-              <div className="warning-item" key={`${warning.productCode}-${warning.key}-qty-${index}`}>
-                <strong>{warning.productCode}</strong>
-                <span>読み取りキー: {warning.key}</span>
-                <span>読み取り数量: {warning.expectedQuantity ?? '-'}</span>
-                <span>梱包数: {warning.packingQuantities?.length ? warning.packingQuantities.join(' / ') : '未取得'}</span>
-                {warning.sourceFile && <span>元ファイル: {warning.sourceFile}</span>}
               </div>
             ))}
           </div>
@@ -211,8 +151,6 @@ function toExtractedPreview(rows: ExtractedRow[]) {
     MMDD: row.mmdd,
     数量: row.quantity,
     消し込みキー: row.key,
-    梱包数: row.packingQuantities.length ? row.packingQuantities.join(' / ') : '',
-    数量判定: row.quantityMismatch ? '数量不一致' : 'OK',
     元ファイル: row.sourceFile,
     箱詰め備考: row.sourceNote,
   }))
@@ -230,24 +168,17 @@ export default function NyukoApp() {
   const [files, setFiles] = useState<SelectedFiles>(emptyFiles)
   const [unknownFiles, setUnknownFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
-  const [specificDraggingRole, setSpecificDraggingRole] = useState<SpecificRole | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [activeTab, setActiveTab] = useState<PreviewTab>('extracted')
-  const bulkInputRef = useRef<HTMLInputElement>(null)
-  const packingInputRef = useRef<HTMLInputElement>(null)
-  const orderInputRef = useRef<HTMLInputElement>(null)
-  const masterInputRef = useRef<HTMLInputElement>(null)
 
   const canRun = files.packingFiles.length > 0 && files.orderFile && files.masterFile && !isProcessing
-  const selectedFileCount = files.packingFiles.length + (files.orderFile ? 1 : 0) + (files.masterFile ? 1 : 0)
 
   const summary = useMemo(() => {
     if (!result) return null
     const noProduct = result.matchResult.warnings.filter((warning) => warning.type === 'no_product').length
     const noKey = result.matchResult.warnings.filter((warning) => warning.type === 'no_key').length
-    const quantityMismatch = result.matchResult.warnings.filter((warning) => warning.type === 'quantity_mismatch').length
     return {
       extracted: result.extracted.length,
       ne: result.neRows.length,
@@ -256,37 +187,8 @@ export default function NyukoApp() {
       warnings: result.matchResult.warnings.length,
       noProduct,
       noKey,
-      quantityMismatch,
     }
   }, [result])
-
-  function openBulkFilePicker() {
-    bulkInputRef.current?.click()
-  }
-
-  function openSpecificFilePicker(role: SpecificRole) {
-    if (role === 'packing') packingInputRef.current?.click()
-    if (role === 'orders') orderInputRef.current?.click()
-    if (role === 'master') masterInputRef.current?.click()
-  }
-
-  function handleDropZoneKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      openBulkFilePicker()
-    }
-  }
-
-  function handleDragLeaveInside(event: DragEvent<HTMLElement>, onLeave: () => void) {
-    const nextTarget = event.relatedTarget as Node | null
-    if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
-      onLeave()
-    }
-  }
-
-  function handleDropZoneDragLeave(event: DragEvent<HTMLDivElement>) {
-    handleDragLeaveInside(event, () => setIsDragging(false))
-  }
 
   function acceptFiles(incoming: File[]) {
     setError(null)
@@ -309,58 +211,17 @@ export default function NyukoApp() {
     event.target.value = ''
   }
 
-  function acceptSpecificFiles(role: SpecificRole, incoming: File[]) {
-    const allowedFiles = incoming.filter((file) => {
-      const lowerName = file.name.toLowerCase()
-      if (role === 'packing') return lowerName.endsWith('.xlsx')
-      return lowerName.endsWith('.csv')
-    })
-
-    if (allowedFiles.length === 0) {
-      const expected = role === 'packing' ? 'P~.xlsxなどの配送依頼書' : 'CSVファイル'
-      setError(`この枠には${expected}をドロップしてください。`)
-      return
-    }
-
+  function handleSpecificInput(role: 'packing' | 'orders' | 'master', event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? [])
+    if (selected.length === 0) return
     setError(null)
     setResult(null)
     setFiles((current) => {
-      if (role === 'packing') return { ...current, packingFiles: allowedFiles }
-      if (role === 'orders') return { ...current, orderFile: allowedFiles[0] }
-      return { ...current, masterFile: allowedFiles[0] }
+      if (role === 'packing') return { ...current, packingFiles: selected }
+      if (role === 'orders') return { ...current, orderFile: selected[0] }
+      return { ...current, masterFile: selected[0] }
     })
-  }
-
-  function handleSpecificInput(role: SpecificRole, event: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? [])
-    if (selected.length === 0) return
-    acceptSpecificFiles(role, selected)
     event.target.value = ''
-  }
-
-  function handleSpecificDragEnter(role: SpecificRole, event: DragEvent<HTMLElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    setIsDragging(false)
-    setSpecificDraggingRole(role)
-  }
-
-  function handleSpecificDragOver(role: SpecificRole, event: DragEvent<HTMLElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    setIsDragging(false)
-    setSpecificDraggingRole(role)
-  }
-
-  function handleSpecificDragLeave(event: DragEvent<HTMLElement>) {
-    handleDragLeaveInside(event, () => setSpecificDraggingRole(null))
-  }
-
-  function handleSpecificDrop(role: SpecificRole, event: DragEvent<HTMLElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    setSpecificDraggingRole(null)
-    acceptSpecificFiles(role, Array.from(event.dataTransfer.files))
   }
 
   function removePackingFile(targetIndex: number) {
@@ -439,76 +300,53 @@ export default function NyukoApp() {
   return (
     <main className="page-shell">
       <section className="hero">
-        <div>
-          <p className="eyebrow">nyuko-ikkatsu</p>
-          <h1>入庫一括</h1>
+        <div className="hero-brand">
+          <img className="hero-logo" src="./symbol.png" alt="入庫一括ロゴ" />
+          <div>
+            <p className="eyebrow">nyuko-ikkatsu</p>
+            <h1>入庫一括</h1>
+            <p className="hero-lead">
+              ラクマート配送依頼書から到着商品を抽出し、NE在庫反映・kintoneオーダー消し込み・倉庫用入庫リストをまとめて生成します。
+            </p>
+          </div>
+        </div>
+        <div className="hero-metrics">
+          <div>
+            <span>処理方式</span>
+            <strong>ブラウザ内完結</strong>
+          </div>
+          <div>
+            <span>出力</span>
+            <strong>CSV / XLSX / ZIP</strong>
+          </div>
         </div>
       </section>
 
       <section
-        className={`drop-zone ${isDragging ? 'is-dragging' : ''} ${selectedFileCount > 0 ? 'has-files' : ''}`}
-        role="button"
-        tabIndex={0}
-        aria-label="ファイルをまとめて選択またはドロップ"
-        onClick={openBulkFilePicker}
-        onKeyDown={handleDropZoneKeyDown}
-        onDragEnter={() => setIsDragging(true)}
+        className={`drop-zone ${isDragging ? 'is-dragging' : ''}`}
         onDragOver={(event) => {
           event.preventDefault()
           setIsDragging(true)
         }}
-        onDragLeave={handleDropZoneDragLeave}
+        onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
       >
-        <input
-          ref={bulkInputRef}
-          className="drop-zone-input"
-          type="file"
-          multiple
-          accept=".xlsx,.csv"
-          onClick={(event) => event.stopPropagation()}
-          onChange={handleBulkInput}
-        />
-        <div className="drop-zone-main">
-          <div className="drop-visual" aria-hidden="true">
-            <span className="drop-visual-ring" />
-            <span className="drop-icon">↓</span>
-          </div>
-          <div className="drop-copy">
-            <p className="eyebrow">UPLOAD</p>
-            <h2>{isDragging ? 'ここにドロップして追加' : 'まとめてドロップor選択'}</h2>
-            <div className="drop-hints" aria-hidden="true">
-              <span>P~.xlsx 複数可</span>
-              <span>オーダー状況CSV</span>
-              <span>商品情報.csv</span>
-            </div>
-          </div>
+        <div>
+          <h2>ファイルをまとめてドロップ</h2>
+          <p>P~.xlsxは複数可。CSVはファイル名から自動判定します。</p>
         </div>
-        <div className="drop-zone-side">
-          <span className="drop-selected-count">{selectedFileCount > 0 ? `${selectedFileCount}ファイル選択中` : '未選択'}</span>
-        </div>
+        <label className="upload-button">
+          ファイルを選択
+          <input type="file" multiple accept=".xlsx,.csv" onChange={handleBulkInput} />
+        </label>
       </section>
 
       <section className="file-grid">
-        <FileCard
-          title="1. ラクマート配送依頼書"
-          description="P~.xlsx / 複数可 / 梱包リストシートを使用"
-          isDragging={specificDraggingRole === 'packing'}
-          onOpen={() => openSpecificFilePicker('packing')}
-          onDragEnter={(event) => handleSpecificDragEnter('packing', event)}
-          onDragOver={(event) => handleSpecificDragOver('packing', event)}
-          onDragLeave={handleSpecificDragLeave}
-          onDrop={(event) => handleSpecificDrop('packing', event)}
-        >
-          <input
-            ref={packingInputRef}
-            className="drop-zone-input"
-            type="file"
-            multiple
-            accept=".xlsx"
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => handleSpecificInput('packing', event)}
-          />
+        <FileCard title="1. ラクマート配送依頼書" description="P~.xlsx / 複数可 / 梱包リストシートを使用">
+          <label className="mini-upload">
+            選び直す
+            <input type="file" multiple accept=".xlsx" onChange={(event) => handleSpecificInput('packing', event)} />
+          </label>
           {files.packingFiles.length === 0 ? (
             <EmptyText>未選択</EmptyText>
           ) : (
@@ -519,7 +357,7 @@ export default function NyukoApp() {
                     <span>{file.name}</span>
                     <small>{formatFileSize(file)}</small>
                   </div>
-                  <button className="file-remove-button" type="button" onClick={(event) => { event.stopPropagation(); removePackingFile(index) }} onKeyDown={(event) => event.stopPropagation()} aria-label={`${file.name}を削除`}>
+                  <button className="file-remove-button" type="button" onClick={() => removePackingFile(index)} aria-label={`${file.name}を削除`}>
                     削除
                   </button>
                 </li>
@@ -528,24 +366,11 @@ export default function NyukoApp() {
           )}
         </FileCard>
 
-        <FileCard
-          title="2. オーダー状況CSV"
-          description="kintoneビューからDLしたCSV。オーダー1〜5 / RM1〜5を使用"
-          isDragging={specificDraggingRole === 'orders'}
-          onOpen={() => openSpecificFilePicker('orders')}
-          onDragEnter={(event) => handleSpecificDragEnter('orders', event)}
-          onDragOver={(event) => handleSpecificDragOver('orders', event)}
-          onDragLeave={handleSpecificDragLeave}
-          onDrop={(event) => handleSpecificDrop('orders', event)}
-        >
-          <input
-            ref={orderInputRef}
-            className="drop-zone-input"
-            type="file"
-            accept=".csv"
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => handleSpecificInput('orders', event)}
-          />
+        <FileCard title="2. オーダー状況CSV" description="kintoneビューからDLしたCSV。オーダー1〜5 / RM1〜5を使用">
+          <label className="mini-upload">
+            選ぶ
+            <input type="file" accept=".csv" onChange={(event) => handleSpecificInput('orders', event)} />
+          </label>
           {files.orderFile ? (
             <ul className="file-list">
               <li>
@@ -553,7 +378,7 @@ export default function NyukoApp() {
                   <span>{files.orderFile.name}</span>
                   <small>{formatFileSize(files.orderFile)}</small>
                 </div>
-                <button className="file-remove-button" type="button" onClick={(event) => { event.stopPropagation(); removeSingleFile('orders') }} onKeyDown={(event) => event.stopPropagation()} aria-label={`${files.orderFile.name}を削除`}>
+                <button className="file-remove-button" type="button" onClick={() => removeSingleFile('orders')} aria-label={`${files.orderFile.name}を削除`}>
                   削除
                 </button>
               </li>
@@ -563,24 +388,11 @@ export default function NyukoApp() {
           )}
         </FileCard>
 
-        <FileCard
-          title="3. 商品情報.csv"
-          description="商品番号 / 出荷時商品名 / 階数を使用"
-          isDragging={specificDraggingRole === 'master'}
-          onOpen={() => openSpecificFilePicker('master')}
-          onDragEnter={(event) => handleSpecificDragEnter('master', event)}
-          onDragOver={(event) => handleSpecificDragOver('master', event)}
-          onDragLeave={handleSpecificDragLeave}
-          onDrop={(event) => handleSpecificDrop('master', event)}
-        >
-          <input
-            ref={masterInputRef}
-            className="drop-zone-input"
-            type="file"
-            accept=".csv"
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => handleSpecificInput('master', event)}
-          />
+        <FileCard title="3. 商品情報.csv" description="商品番号 / 出荷時商品名 / 階数を使用">
+          <label className="mini-upload">
+            選ぶ
+            <input type="file" accept=".csv" onChange={(event) => handleSpecificInput('master', event)} />
+          </label>
           {files.masterFile ? (
             <ul className="file-list">
               <li>
@@ -588,7 +400,7 @@ export default function NyukoApp() {
                   <span>{files.masterFile.name}</span>
                   <small>{formatFileSize(files.masterFile)}</small>
                 </div>
-                <button className="file-remove-button" type="button" onClick={(event) => { event.stopPropagation(); removeSingleFile('master') }} onKeyDown={(event) => event.stopPropagation()} aria-label={`${files.masterFile.name}を削除`}>
+                <button className="file-remove-button" type="button" onClick={() => removeSingleFile('master')} aria-label={`${files.masterFile.name}を削除`}>
                   削除
                 </button>
               </li>

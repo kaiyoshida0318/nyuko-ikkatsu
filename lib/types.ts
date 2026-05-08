@@ -12,8 +12,6 @@ export type ExtractedRow = {
   mmdd: string
   quantity: number
   key: string
-  packingQuantities: number[]
-  quantityMismatch: boolean
   sourceNote: string
   sourceFile: string
 }
@@ -34,16 +32,13 @@ export type MasterRecord = {
   floor: string
 }
 
-export type WarningType = 'no_product' | 'no_key' | 'quantity_mismatch'
+export type WarningType = 'no_product' | 'no_key'
 
 export type MatchWarning = {
   type: WarningType
   productCode: string
   key?: string
   deliveredKeys: string[]
-  expectedQuantity?: number
-  packingQuantities?: number[]
-  sourceFile?: string
   currentOrders?: string[]
   message: string
 }

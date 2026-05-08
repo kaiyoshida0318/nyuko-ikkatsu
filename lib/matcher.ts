@@ -47,21 +47,6 @@ export function matchAndConsume(extracted: ExtractedRow[], orderRecords: OrderRe
     const incomingQuantity = incomingRows.reduce((sum, row) => sum + row.quantity, 0)
     const record = orderIndex.get(productCodeLc)
 
-    for (const incoming of incomingRows) {
-      if (incoming.quantityMismatch) {
-        warnings.push({
-          type: 'quantity_mismatch',
-          productCode,
-          key: incoming.key,
-          deliveredKeys,
-          expectedQuantity: incoming.quantity,
-          packingQuantities: incoming.packingQuantities,
-          sourceFile: incoming.sourceFile,
-          message: `${productCode}: ${incoming.key} の読み取り数量と梱包数が一致しません。`,
-        })
-      }
-    }
-
     if (!record) {
       warnings.push({
         type: 'no_product',
