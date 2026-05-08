@@ -1,15 +1,12 @@
-const repoName = 'nyuko-ikkatsu'
-const isGithubPages = process.env.GITHUB_PAGES === 'true'
-
-/** @type {import('next').NextConfig} */
+﻿/** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
+  output: "export",
   trailingSlash: true,
+  basePath: process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "",
+  assetPrefix: process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu/" : "",
   images: {
     unoptimized: true,
   },
-  basePath: isGithubPages ? `/${repoName}` : '',
-  assetPrefix: isGithubPages ? `/${repoName}/` : '',
-}
+};
 
-export default nextConfig
+export default nextConfig;

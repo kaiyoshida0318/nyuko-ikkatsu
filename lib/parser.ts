@@ -11,6 +11,13 @@ function normalizeCell(value: unknown): string | null {
   return text
 }
 
+function normalizeNumber(value: unknown): number | null {
+  const text = String(value ?? '').replace(/,/g, '').trim()
+  if (!text || text === '■' || text === 'nan' || text === 'None') return null
+  const number = Number(text)
+  return Number.isFinite(number) ? number : null
+}
+
 function parseCsvText(text: string): Record<string, string | null>[] {
   const result = Papa.parse<Record<string, string>>(text, {
     header: true,
@@ -32,8 +39,23 @@ function parseCsvText(text: string): Record<string, string | null>[] {
   })
 }
 
+type PackingAccumulator = {
+  productCode: string
+  productCodeLc: string
+  mmdd: string
+  quantity: number
+  key: string
+  sourceNote: string
+  sourceFile: string
+  packedGroups: Map<string, number>
+}
+
+function getColumnIndex(row: unknown[], headerName: string): number {
+  return row.findIndex((cell) => String(cell ?? '').trim() === headerName)
+}
+
 export async function parsePackingFiles(files: File[]): Promise<ExtractedRow[]> {
-  const unique = new Map<string, ExtractedRow>()
+  const unique = new Map<string, PackingAccumulator>()
 
   for (const file of files) {
     const buffer = await file.arrayBuffer()
@@ -52,14 +74,20 @@ export async function parsePackingFiles(files: File[]): Promise<ExtractedRow[]> 
 
     let headerRowIndex = -1
     let noteColIndex = -1
+    let packingColIndex = -1
+    let orderNoColIndex = -1
+    let itemNoColIndex = -1
     const scanLimit = Math.min(20, rows.length)
 
     for (let rowIndex = 0; rowIndex < scanLimit; rowIndex += 1) {
       const row = rows[rowIndex] ?? []
-      const foundCol = row.findIndex((cell) => String(cell ?? '').trim() === '箱詰め備考')
+      const foundCol = getColumnIndex(row, '箱詰め備考')
       if (foundCol >= 0) {
         headerRowIndex = rowIndex
         noteColIndex = foundCol
+        packingColIndex = getColumnIndex(row, '梱包数')
+        orderNoColIndex = getColumnIndex(row, '注文番号')
+        itemNoColIndex = getColumnIndex(row, '商品番号')
         break
       }
     }
@@ -69,8 +97,14 @@ export async function parsePackingFiles(files: File[]): Promise<ExtractedRow[]> 
     }
 
     for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
-      const note = String(rows[rowIndex]?.[noteColIndex] ?? '').trim()
+      const row = rows[rowIndex] ?? []
+      const note = String(row[noteColIndex] ?? '').trim()
       if (!note) continue
+
+      const packingQuantity = packingColIndex >= 0 ? normalizeNumber(row[packingColIndex]) : null
+      const orderNo = orderNoColIndex >= 0 ? String(row[orderNoColIndex] ?? '').trim() : ''
+      const itemNo = itemNoColIndex >= 0 ? String(row[itemNoColIndex] ?? '').trim() : ''
+      const packedGroupKey = `${orderNo || 'order'}__${itemNo || `row${rowIndex}`}`
 
       NOTE_PATTERN.lastIndex = 0
       for (const match of note.matchAll(NOTE_PATTERN)) {
@@ -82,23 +116,42 @@ export async function parsePackingFiles(files: File[]): Promise<ExtractedRow[]> 
         const productCodeLc = productCode.toLowerCase()
         const key = `${mmdd}-${quantity}`
         const uniqueKey = `${productCodeLc}__${mmdd}__${quantity}`
-
-        if (!unique.has(uniqueKey)) {
-          unique.set(uniqueKey, {
-            productCode,
-            productCodeLc,
-            mmdd,
-            quantity,
-            key,
-            sourceNote: note,
-            sourceFile: file.name,
-          })
+        const current = unique.get(uniqueKey) ?? {
+          productCode,
+          productCodeLc,
+          mmdd,
+          quantity,
+          key,
+          sourceNote: note,
+          sourceFile: file.name,
+          packedGroups: new Map<string, number>(),
         }
+
+        if (packingQuantity !== null) {
+          current.packedGroups.set(packedGroupKey, (current.packedGroups.get(packedGroupKey) ?? 0) + packingQuantity)
+        }
+
+        unique.set(uniqueKey, current)
       }
     }
   }
 
-  const extracted = [...unique.values()].sort((a, b) => {
+  const extracted = [...unique.values()].map((row) => {
+    const packingQuantities = [...new Set([...row.packedGroups.values()])].sort((a, b) => a - b)
+    const quantityMismatch = packingQuantities.length > 0 && !packingQuantities.includes(row.quantity)
+
+    return {
+      productCode: row.productCode,
+      productCodeLc: row.productCodeLc,
+      mmdd: row.mmdd,
+      quantity: row.quantity,
+      key: row.key,
+      packingQuantities,
+      quantityMismatch,
+      sourceNote: row.sourceNote,
+      sourceFile: row.sourceFile,
+    }
+  }).sort((a, b) => {
     const codeCompare = a.productCodeLc.localeCompare(b.productCodeLc)
     if (codeCompare !== 0) return codeCompare
     const mmddCompare = a.mmdd.localeCompare(b.mmdd)
