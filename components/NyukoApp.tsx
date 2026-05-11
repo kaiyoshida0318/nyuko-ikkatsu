@@ -10,6 +10,8 @@ import type { ExtractedRow, MatchWarning, ProcessResult, SelectedFiles } from '@
 type PreviewTab = 'extracted' | 'ne' | 'kintone' | 'nyuko'
 type SpecificRole = 'packing' | 'orders' | 'master'
 
+const assetBasePath = process.env.NODE_ENV === 'production' ? '/nyuko-ikkatsu' : ''
+
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
   orderFile: null,
@@ -438,11 +440,8 @@ export default function NyukoApp() {
 
   return (
     <main className="page-shell">
-      <section className="hero">
-        <div>
-          <p className="eyebrow">nyuko-ikkatsu</p>
-          <h1>入庫一括</h1>
-        </div>
+      <section className="hero hero--symbol-only" aria-label="入庫一括">
+        <img className="hero-symbol" src={`${assetBasePath}/symbol.png`} alt="入庫一括" />
       </section>
 
       <section
