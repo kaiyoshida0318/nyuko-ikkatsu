@@ -1411,3 +1411,16 @@ tr:last-child td {
     width: 100%;
   }
 }
+
+/* Keep the product DB settings panel above the upload / action cards */
+.app-header {
+  z-index: 100;
+}
+
+.app-header-inner {
+  z-index: 101;
+}
+
+.product-hub-settings {
+  z-index: 1000;
+}
