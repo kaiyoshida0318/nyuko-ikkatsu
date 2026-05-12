@@ -2,20 +2,27 @@
 
 import { ChangeEvent, DragEvent, KeyboardEvent, ReactNode, useMemo, useRef, useState } from 'react'
 import { saveAs } from 'file-saver'
-import { detectFileRole, fileRoleLabel } from '@/lib/fileRoles'
+import { detectFileRole } from '@/lib/fileRoles'
 import { makeKintoneCsvBlob, makeNeCsvBlob, makeNyukoXlsxBlob, makeZipBlob } from '@/lib/formatter'
 import { runNyukoProcess } from '@/lib/process'
-import type { ExtractedRow, MatchWarning, ProcessResult, SelectedFiles } from '@/lib/types'
+import type { ExtractedRow, MatchWarning, ProcessResult, ProductHubSettings, SelectedFiles } from '@/lib/types'
 
 type PreviewTab = 'extracted' | 'ne' | 'kintone' | 'nyuko'
-type SpecificRole = 'packing' | 'orders' | 'master'
 
 const assetBasePath = process.env.NODE_ENV === 'production' ? '/nyuko-ikkatsu' : ''
+const PRODUCT_HUB_API_URL_STORAGE_KEY = 'nyuko-ikkatsu.productHub.apiUrl'
+const PRODUCT_HUB_API_KEY_STORAGE_KEY = 'nyuko-ikkatsu.productHub.apiKey'
 
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
-  orderFile: null,
-  masterFile: null,
+}
+
+function loadProductHubSettings(): ProductHubSettings {
+  if (typeof window === 'undefined') return { apiUrl: '', apiKey: '' }
+  return {
+    apiUrl: window.localStorage.getItem(PRODUCT_HUB_API_URL_STORAGE_KEY) ?? '',
+    apiKey: window.localStorage.getItem(PRODUCT_HUB_API_KEY_STORAGE_KEY) ?? '',
+  }
 }
 
 function formatFileSize(file: File) {
@@ -27,8 +34,6 @@ function formatFileSize(file: File) {
 function mergeFiles(current: SelectedFiles, incomingFiles: File[]): SelectedFiles {
   const next: SelectedFiles = {
     packingFiles: [...current.packingFiles],
-    orderFile: current.orderFile,
-    masterFile: current.masterFile,
   }
 
   for (const file of incomingFiles) {
@@ -37,8 +42,6 @@ function mergeFiles(current: SelectedFiles, incomingFiles: File[]): SelectedFile
       const duplicated = next.packingFiles.some((currentFile) => currentFile.name === file.name && currentFile.size === file.size)
       if (!duplicated) next.packingFiles.push(file)
     }
-    if (role === 'orders') next.orderFile = file
-    if (role === 'master') next.masterFile = file
   }
 
   return next
@@ -96,6 +99,59 @@ function FileCard({
   )
 }
 
+function ProductHubCard({
+  settings,
+  onChange,
+}: {
+  settings: ProductHubSettings
+  onChange: (settings: ProductHubSettings) => void
+}) {
+  const isReady = Boolean(settings.apiUrl.trim() && settings.apiKey.trim())
+
+  function updateSetting(key: keyof ProductHubSettings, value: string) {
+    const next = { ...settings, [key]: value }
+    onChange(next)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(PRODUCT_HUB_API_URL_STORAGE_KEY, next.apiUrl)
+      window.localStorage.setItem(PRODUCT_HUB_API_KEY_STORAGE_KEY, next.apiKey)
+    }
+  }
+
+  return (
+    <section className="product-db-card">
+      <div className="file-card-head">
+        <div>
+          <h3>2. 商品DB連携</h3>
+          <p>配送依頼書の商品コードだけを product-data-hub から取得します。</p>
+        </div>
+        <span className={`specific-drop-badge ${isReady ? 'specific-drop-badge--good' : ''}`}>{isReady ? '設定済み' : '未設定'}</span>
+      </div>
+
+      <div className="settings-grid">
+        <label className="setting-field">
+          <span>商品DB API URL</span>
+          <input
+            type="url"
+            value={settings.apiUrl}
+            onChange={(event) => updateSetting('apiUrl', event.target.value)}
+            placeholder="https://PROJECT_REF.supabase.co/functions/v1/get-products"
+          />
+        </label>
+        <label className="setting-field">
+          <span>READ API KEY</span>
+          <input
+            type="password"
+            value={settings.apiKey}
+            onChange={(event) => updateSetting('apiKey', event.target.value)}
+            placeholder="PRODUCT_READ_API_KEY"
+          />
+        </label>
+      </div>
+
+      <p className="settings-note">商品情報・オーダー状況は入庫一括内に保存せず、処理時だけAPIから取得します。</p>
+    </section>
+  )
+}
 
 function Pill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'good' | 'warn' | 'danger' }) {
   return <span className={`pill pill--${tone}`}>{children}</span>
@@ -114,7 +170,7 @@ function WarningList({ warnings }: { warnings: MatchWarning[] }) {
     return (
       <section className="notice notice--good">
         <strong>警告なし</strong>
-        <span>すべての入庫データをオーダー状況CSVと照合できました。</span>
+        <span>すべての入庫データをproduct-data-hubのオーダー状況と照合できました。</span>
       </section>
     )
   }
@@ -131,7 +187,7 @@ function WarningList({ warnings }: { warnings: MatchWarning[] }) {
 
       {noProduct.length > 0 && (
         <details className="warning-group warning-group--danger" open>
-          <summary>kintone未登録商品 {noProduct.length}件</summary>
+          <summary>商品DB未登録商品 {noProduct.length}件</summary>
           <div className="warning-list">
             {noProduct.map((warning, index) => (
               <div className="warning-item" key={`${warning.productCode}-${index}`}>
@@ -231,19 +287,19 @@ function tabCount(result: ProcessResult | null, tab: PreviewTab) {
 export default function NyukoApp() {
   const [files, setFiles] = useState<SelectedFiles>(emptyFiles)
   const [unknownFiles, setUnknownFiles] = useState<File[]>([])
+  const [productHubSettings, setProductHubSettings] = useState<ProductHubSettings>(loadProductHubSettings)
   const [isDragging, setIsDragging] = useState(false)
-  const [specificDraggingRole, setSpecificDraggingRole] = useState<SpecificRole | null>(null)
+  const [specificDragging, setSpecificDragging] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [activeTab, setActiveTab] = useState<PreviewTab>('extracted')
   const bulkInputRef = useRef<HTMLInputElement>(null)
   const packingInputRef = useRef<HTMLInputElement>(null)
-  const orderInputRef = useRef<HTMLInputElement>(null)
-  const masterInputRef = useRef<HTMLInputElement>(null)
 
-  const canRun = files.packingFiles.length > 0 && files.orderFile && files.masterFile && !isProcessing
-  const selectedFileCount = files.packingFiles.length + (files.orderFile ? 1 : 0) + (files.masterFile ? 1 : 0)
+  const productHubReady = Boolean(productHubSettings.apiUrl.trim() && productHubSettings.apiKey.trim())
+  const canRun = files.packingFiles.length > 0 && productHubReady && !isProcessing
+  const selectedFileCount = files.packingFiles.length
 
   const summary = useMemo(() => {
     if (!result) return null
@@ -266,10 +322,8 @@ export default function NyukoApp() {
     bulkInputRef.current?.click()
   }
 
-  function openSpecificFilePicker(role: SpecificRole) {
-    if (role === 'packing') packingInputRef.current?.click()
-    if (role === 'orders') orderInputRef.current?.click()
-    if (role === 'master') masterInputRef.current?.click()
+  function openPackingFilePicker() {
+    packingInputRef.current?.click()
   }
 
   function handleDropZoneKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -311,76 +365,57 @@ export default function NyukoApp() {
     event.target.value = ''
   }
 
-  function acceptSpecificFiles(role: SpecificRole, incoming: File[]) {
-    const allowedFiles = incoming.filter((file) => {
-      const lowerName = file.name.toLowerCase()
-      if (role === 'packing') return lowerName.endsWith('.xlsx')
-      return lowerName.endsWith('.csv')
-    })
+  function acceptPackingFiles(incoming: File[]) {
+    const allowedFiles = incoming.filter((file) => file.name.toLowerCase().endsWith('.xlsx'))
 
     if (allowedFiles.length === 0) {
-      const expected = role === 'packing' ? 'P~.xlsxなどの配送依頼書' : 'CSVファイル'
-      setError(`この枠には${expected}をドロップしてください。`)
+      setError('この枠にはP~.xlsxなどの配送依頼書をドロップしてください。')
       return
     }
 
     setError(null)
     setResult(null)
-    setFiles((current) => {
-      if (role === 'packing') return { ...current, packingFiles: allowedFiles }
-      if (role === 'orders') return { ...current, orderFile: allowedFiles[0] }
-      return { ...current, masterFile: allowedFiles[0] }
-    })
+    setFiles({ packingFiles: allowedFiles })
   }
 
-  function handleSpecificInput(role: SpecificRole, event: ChangeEvent<HTMLInputElement>) {
+  function handlePackingInput(event: ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? [])
     if (selected.length === 0) return
-    acceptSpecificFiles(role, selected)
+    acceptPackingFiles(selected)
     event.target.value = ''
   }
 
-  function handleSpecificDragEnter(role: SpecificRole, event: DragEvent<HTMLElement>) {
+  function handlePackingDragEnter(event: DragEvent<HTMLElement>) {
     event.preventDefault()
     event.stopPropagation()
     setIsDragging(false)
-    setSpecificDraggingRole(role)
+    setSpecificDragging(true)
   }
 
-  function handleSpecificDragOver(role: SpecificRole, event: DragEvent<HTMLElement>) {
+  function handlePackingDragOver(event: DragEvent<HTMLElement>) {
     event.preventDefault()
     event.stopPropagation()
     setIsDragging(false)
-    setSpecificDraggingRole(role)
+    setSpecificDragging(true)
   }
 
-  function handleSpecificDragLeave(event: DragEvent<HTMLElement>) {
-    handleDragLeaveInside(event, () => setSpecificDraggingRole(null))
+  function handlePackingDragLeave(event: DragEvent<HTMLElement>) {
+    handleDragLeaveInside(event, () => setSpecificDragging(false))
   }
 
-  function handleSpecificDrop(role: SpecificRole, event: DragEvent<HTMLElement>) {
+  function handlePackingDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault()
     event.stopPropagation()
-    setSpecificDraggingRole(null)
-    acceptSpecificFiles(role, Array.from(event.dataTransfer.files))
+    setSpecificDragging(false)
+    acceptPackingFiles(Array.from(event.dataTransfer.files))
   }
 
   function removePackingFile(targetIndex: number) {
     setError(null)
     setResult(null)
     setFiles((current) => ({
-      ...current,
       packingFiles: current.packingFiles.filter((_, index) => index !== targetIndex),
     }))
-  }
-
-  function removeSingleFile(role: 'orders' | 'master') {
-    setError(null)
-    setResult(null)
-    setFiles((current) => {
-      if (role === 'orders') return { ...current, orderFile: null }
-      return { ...current, masterFile: null }
-    })
   }
 
   function removeUnknownFile(targetIndex: number) {
@@ -392,7 +427,7 @@ export default function NyukoApp() {
     setError(null)
     setResult(null)
     try {
-      const processResult = await runNyukoProcess(files)
+      const processResult = await runNyukoProcess(files, productHubSettings)
       setResult(processResult)
       setActiveTab('extracted')
     } catch (err) {
@@ -448,7 +483,7 @@ export default function NyukoApp() {
         className={`drop-zone ${isDragging ? 'is-dragging' : ''} ${selectedFileCount > 0 ? 'has-files' : ''}`}
         role="button"
         tabIndex={0}
-        aria-label="ファイルをまとめて選択またはドロップ"
+        aria-label="配送依頼書をまとめて選択またはドロップ"
         onClick={openBulkFilePicker}
         onKeyDown={handleDropZoneKeyDown}
         onDragEnter={() => setIsDragging(true)}
@@ -464,7 +499,7 @@ export default function NyukoApp() {
           className="drop-zone-input"
           type="file"
           multiple
-          accept=".xlsx,.csv"
+          accept=".xlsx"
           onClick={(event) => event.stopPropagation()}
           onChange={handleBulkInput}
         />
@@ -475,11 +510,11 @@ export default function NyukoApp() {
           </div>
           <div className="drop-copy">
             <p className="eyebrow">UPLOAD</p>
-            <h2>{isDragging ? 'ここにドロップして追加' : 'まとめてドロップor選択'}</h2>
+            <h2>{isDragging ? 'ここにドロップして追加' : '配送依頼書をドロップor選択'}</h2>
             <div className="drop-hints" aria-hidden="true">
               <span>P~.xlsx 複数可</span>
-              <span>オーダー状況CSV</span>
-              <span>商品情報.csv</span>
+              <span>商品情報は商品DBから取得</span>
+              <span>オーダー状況も商品DBから取得</span>
             </div>
           </div>
         </div>
@@ -488,16 +523,16 @@ export default function NyukoApp() {
         </div>
       </section>
 
-      <section className="file-grid">
+      <section className="file-grid file-grid--two">
         <FileCard
           title="1. ラクマート配送依頼書"
           description="P~.xlsx / 複数可 / 梱包リストシートを使用"
-          isDragging={specificDraggingRole === 'packing'}
-          onOpen={() => openSpecificFilePicker('packing')}
-          onDragEnter={(event) => handleSpecificDragEnter('packing', event)}
-          onDragOver={(event) => handleSpecificDragOver('packing', event)}
-          onDragLeave={handleSpecificDragLeave}
-          onDrop={(event) => handleSpecificDrop('packing', event)}
+          isDragging={specificDragging}
+          onOpen={openPackingFilePicker}
+          onDragEnter={handlePackingDragEnter}
+          onDragOver={handlePackingDragOver}
+          onDragLeave={handlePackingDragLeave}
+          onDrop={handlePackingDrop}
         >
           <input
             ref={packingInputRef}
@@ -506,7 +541,7 @@ export default function NyukoApp() {
             multiple
             accept=".xlsx"
             onClick={(event) => event.stopPropagation()}
-            onChange={(event) => handleSpecificInput('packing', event)}
+            onChange={handlePackingInput}
           />
           {files.packingFiles.length === 0 ? (
             <EmptyText>未選択</EmptyText>
@@ -527,84 +562,17 @@ export default function NyukoApp() {
           )}
         </FileCard>
 
-        <FileCard
-          title="2. オーダー状況CSV"
-          description="kintoneビューからDLしたCSV。オーダー1〜5 / RM1〜5を使用"
-          isDragging={specificDraggingRole === 'orders'}
-          onOpen={() => openSpecificFilePicker('orders')}
-          onDragEnter={(event) => handleSpecificDragEnter('orders', event)}
-          onDragOver={(event) => handleSpecificDragOver('orders', event)}
-          onDragLeave={handleSpecificDragLeave}
-          onDrop={(event) => handleSpecificDrop('orders', event)}
-        >
-          <input
-            ref={orderInputRef}
-            className="drop-zone-input"
-            type="file"
-            accept=".csv"
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => handleSpecificInput('orders', event)}
-          />
-          {files.orderFile ? (
-            <ul className="file-list">
-              <li>
-                <div className="file-row-main">
-                  <span>{files.orderFile.name}</span>
-                  <small>{formatFileSize(files.orderFile)}</small>
-                </div>
-                <button className="file-remove-button" type="button" onClick={(event) => { event.stopPropagation(); removeSingleFile('orders') }} onKeyDown={(event) => event.stopPropagation()} aria-label={`${files.orderFile.name}を削除`}>
-                  削除
-                </button>
-              </li>
-            </ul>
-          ) : (
-            <EmptyText>未選択</EmptyText>
-          )}
-        </FileCard>
-
-        <FileCard
-          title="3. 商品情報.csv"
-          description="商品番号 / 出荷時商品名 / 階数を使用"
-          isDragging={specificDraggingRole === 'master'}
-          onOpen={() => openSpecificFilePicker('master')}
-          onDragEnter={(event) => handleSpecificDragEnter('master', event)}
-          onDragOver={(event) => handleSpecificDragOver('master', event)}
-          onDragLeave={handleSpecificDragLeave}
-          onDrop={(event) => handleSpecificDrop('master', event)}
-        >
-          <input
-            ref={masterInputRef}
-            className="drop-zone-input"
-            type="file"
-            accept=".csv"
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => handleSpecificInput('master', event)}
-          />
-          {files.masterFile ? (
-            <ul className="file-list">
-              <li>
-                <div className="file-row-main">
-                  <span>{files.masterFile.name}</span>
-                  <small>{formatFileSize(files.masterFile)}</small>
-                </div>
-                <button className="file-remove-button" type="button" onClick={(event) => { event.stopPropagation(); removeSingleFile('master') }} onKeyDown={(event) => event.stopPropagation()} aria-label={`${files.masterFile.name}を削除`}>
-                  削除
-                </button>
-              </li>
-            </ul>
-          ) : (
-            <EmptyText>未選択</EmptyText>
-          )}
-        </FileCard>
+        <ProductHubCard settings={productHubSettings} onChange={setProductHubSettings} />
       </section>
 
       {unknownFiles.length > 0 && (
         <section className="notice notice--warn">
           <strong>未判定ファイルがあります</strong>
+          <span>現在読み込めるのはラクマート配送依頼書の .xlsx のみです。商品情報CSV・オーダー状況CSVは不要です。</span>
           <ul className="unknown-file-list">
             {unknownFiles.map((file, index) => (
               <li key={`${file.name}-${file.size}-${index}`}>
-                <span>{file.name}（{fileRoleLabel(detectFileRole(file))}）</span>
+                <span>{file.name}</span>
                 <button className="file-remove-button file-remove-button--light" type="button" onClick={() => removeUnknownFile(index)}>
                   削除
                 </button>
@@ -618,15 +586,22 @@ export default function NyukoApp() {
         <div>
           <p className="eyebrow">RUN</p>
           <h2>入庫処理を実行</h2>
-          <p>3種類の入力ファイルが揃うと処理できます。ファイルはサーバーに送信されません。</p>
+          <p>配送依頼書と商品DB設定が揃うと処理できます。商品情報・オーダー状況は処理時にproduct-data-hubから取得します。</p>
         </div>
         <div className="action-buttons">
           <button className="secondary-button" type="button" onClick={clearAll}>クリア</button>
           <button className="primary-button" type="button" onClick={handleRun} disabled={!canRun}>
-            {isProcessing ? '処理中…' : '処理実行'}
+            {isProcessing ? '商品DB取得中…' : '処理実行'}
           </button>
         </div>
       </section>
+
+      {!productHubReady && (
+        <section className="notice notice--warn">
+          <strong>商品DB連携が未設定です</strong>
+          <span>商品DB API URL と READ API KEY を入力すると処理できます。</span>
+        </section>
+      )}
 
       {error && (
         <section className="notice notice--danger">

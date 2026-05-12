@@ -1,9 +1,12 @@
-export type FileRole = 'packing' | 'orders' | 'master' | 'unknown'
+export type FileRole = 'packing' | 'unknown'
 
 export type SelectedFiles = {
   packingFiles: File[]
-  orderFile: File | null
-  masterFile: File | null
+}
+
+export type ProductHubSettings = {
+  apiUrl: string
+  apiKey: string
 }
 
 export type ExtractedRow = {
@@ -18,13 +21,22 @@ export type ExtractedRow = {
   sourceFile: string
 }
 
+export type ProductHubRecord = {
+  productCode: string
+  productCodeLc: string
+  productName: string
+  floor: string
+  orders: (string | null)[]
+  rms: (string | null)[]
+}
+
 export type OrderRecord = {
   productCode: string
   productCodeLc: string
   productName: string
   orders: (string | null)[]
   rms: (string | null)[]
-  raw: Record<string, string | null>
+  raw?: Record<string, string | null>
 }
 
 export type MasterRecord = {

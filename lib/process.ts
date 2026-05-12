@@ -1,23 +1,31 @@
 import { buildKintoneRows, buildNeRows, buildNyukoRows, matchAndConsume } from './matcher'
-import { parseMasterCsv, parseOrderCsv, parsePackingFiles } from './parser'
-import type { ProcessResult, SelectedFiles } from './types'
+import { parsePackingFiles } from './parser'
+import { fetchProductHubRecords } from './productHub'
+import type { MasterRecord, OrderRecord, ProcessResult, ProductHubSettings, SelectedFiles } from './types'
 
-export async function runNyukoProcess(files: SelectedFiles): Promise<ProcessResult> {
+export async function runNyukoProcess(files: SelectedFiles, productHubSettings: ProductHubSettings): Promise<ProcessResult> {
   if (files.packingFiles.length === 0) {
     throw new Error('ラクマート配送依頼書 P~.xlsx を選択してください。')
   }
-  if (!files.orderFile) {
-    throw new Error('オーダー状況CSVを選択してください。')
-  }
-  if (!files.masterFile) {
-    throw new Error('商品情報.csvを選択してください。')
-  }
 
-  const [extracted, orders, masters] = await Promise.all([
-    parsePackingFiles(files.packingFiles),
-    parseOrderCsv(files.orderFile),
-    parseMasterCsv(files.masterFile),
-  ])
+  const extracted = await parsePackingFiles(files.packingFiles)
+  const productCodes = [...new Set(extracted.map((row) => row.productCode))]
+  const productRecords = await fetchProductHubRecords(productHubSettings, productCodes)
+
+  const orders: OrderRecord[] = productRecords.map((record) => ({
+    productCode: record.productCode,
+    productCodeLc: record.productCodeLc,
+    productName: record.productName,
+    orders: record.orders,
+    rms: record.rms,
+  }))
+
+  const masters: MasterRecord[] = productRecords.map((record) => ({
+    productCode: record.productCode,
+    productCodeLc: record.productCodeLc,
+    productName: record.productName,
+    floor: record.floor,
+  }))
 
   const matchResult = matchAndConsume(extracted, orders)
   const neRows = buildNeRows(matchResult)

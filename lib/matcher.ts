@@ -67,7 +67,7 @@ export function matchAndConsume(extracted: ExtractedRow[], orderRecords: OrderRe
         type: 'no_product',
         productCode,
         deliveredKeys,
-        message: `${productCode}: kintoneのオーダー状況CSVに商品がありません。`,
+        message: `${productCode}: product-data-hubに商品がありません。`,
       })
       continue
     }
@@ -170,7 +170,7 @@ export function buildNyukoRows(extracted: ExtractedRow[], masters: MasterRecord[
       商品名: master?.productName || '(商品情報未登録)',
       入庫数: quantity,
       階数: master?.floor || '',
-      備考: master ? '' : '商品情報.csvに該当なし',
+      備考: master ? '' : 'product-data-hubに商品情報なし',
     })
   }
 
