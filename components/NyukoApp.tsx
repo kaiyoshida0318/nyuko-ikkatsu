@@ -375,26 +375,28 @@ export default function NyukoApp() {
   return (
     <main className="page-shell">
       <header className="app-header" aria-label="入庫一括">
-        <div className="app-header-brand">
-          <img className="app-symbol" src={`${assetBasePath}/symbol.png`} alt="入庫一括" />
-        </div>
+        <div className="app-header-inner">
+          <div className="app-header-brand">
+            <img className="app-symbol" src={`${assetBasePath}/symbol.png`} alt="入庫一括" />
+          </div>
 
-        <div className="app-header-actions">
-          <button
-            className={`product-hub-toggle ${productHubReady ? 'product-hub-toggle--ready' : 'product-hub-toggle--unset'}`}
-            type="button"
-            onClick={() => setIsProductHubPanelOpen((current) => !current)}
-            aria-expanded={isProductHubPanelOpen}
-          >
-            <span className="product-hub-toggle-dot" />
-            <span className="product-hub-toggle-label">商品DB</span>
-            <strong>{productHubReady ? '接続済み' : '未設定'}</strong>
-          </button>
-        </div>
+          <div className="app-header-actions">
+            <button
+              className={`product-hub-toggle ${productHubReady ? 'product-hub-toggle--ready' : 'product-hub-toggle--unset'}`}
+              type="button"
+              onClick={() => setIsProductHubPanelOpen((current) => !current)}
+              aria-expanded={isProductHubPanelOpen}
+            >
+              <span className="product-hub-toggle-dot" />
+              <span className="product-hub-toggle-label">商品DB</span>
+              <strong>{productHubReady ? '接続済み' : '未設定'}</strong>
+            </button>
+          </div>
 
-        {isProductHubPanelOpen && (
-          <ProductHubSettingsPanel settings={productHubSettings} onChange={setProductHubSettings} />
-        )}
+          {isProductHubPanelOpen && (
+            <ProductHubSettingsPanel settings={productHubSettings} onChange={setProductHubSettings} />
+          )}
+        </div>
       </header>
 
       <section

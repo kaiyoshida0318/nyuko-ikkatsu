@@ -1335,3 +1335,79 @@ tr:last-child td {
     border-radius: 22px;
   }
 }
+
+/* Full-width app header: header = navigation bar, main sections = cards */
+.page-shell {
+  padding-top: 0;
+}
+
+.app-header {
+  position: relative;
+  width: 100vw;
+  min-height: 76px;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid rgba(30, 45, 75, 0.10);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10px 28px rgba(33, 51, 89, 0.06);
+  backdrop-filter: blur(14px);
+}
+
+.app-header-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: min(1540px, calc(100% - 40px));
+  min-height: 56px;
+  margin: 0 auto;
+}
+
+.app-symbol {
+  width: 58px;
+  height: 58px;
+  filter: drop-shadow(0 8px 14px rgba(12, 31, 66, 0.12));
+}
+
+.product-hub-toggle {
+  min-height: 42px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 8px 18px rgba(33, 51, 89, 0.06);
+}
+
+.product-hub-settings {
+  right: 0;
+  top: calc(100% + 10px);
+}
+
+.app-header + .drop-zone {
+  margin-top: 26px;
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    min-height: 68px;
+    padding: 8px 0;
+    border-radius: 0;
+  }
+
+  .app-header-inner {
+    width: min(100% - 24px, 1540px);
+    min-height: 52px;
+  }
+
+  .app-symbol {
+    width: 50px;
+    height: 50px;
+  }
+
+  .product-hub-settings {
+    left: 0;
+    right: 0;
+    width: 100%;
+  }
+}
