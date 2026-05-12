@@ -113,6 +113,7 @@ export type RowCorrectionMap = Record<string, RowCorrection>;
 
 export type ProcessResult = {
   extracted: ExtractedRow[];
+  productHubRecords: ProductHubRecord[];
   matchResult: MatchResult;
   neRows: NeUpdateRow[];
   kintoneRows: KintoneUpdateRow[];

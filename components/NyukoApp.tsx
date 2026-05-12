@@ -22,6 +22,7 @@ import type {
   ExtractedRow,
   MatchWarning,
   ProcessResult,
+  ProductHubRecord,
   ProductHubSettings,
   RowCorrection,
   RowCorrectionMap,
@@ -322,6 +323,17 @@ function getCorrectionValue(
   return value === undefined ? fallback : value;
 }
 
+function getProductDbKeys(record: ProductHubRecord | undefined) {
+  if (!record) return [];
+  return record.orders
+    .map((order, index) =>
+      order ? { label: `オーダー${index + 1}`, value: order } : null,
+    )
+    .filter((item): item is { label: string; value: string } =>
+      Boolean(item),
+    );
+}
+
 function WarningCorrectionPanel({
   result,
   corrections,
@@ -338,6 +350,13 @@ function WarningCorrectionPanel({
   isProcessing: boolean;
 }) {
   const rows = useMemo(() => buildCorrectionRows(result), [result]);
+  const productHubIndex = useMemo(() => {
+    const map = new Map<string, ProductHubRecord>();
+    for (const record of result.productHubRecords) {
+      map.set(record.productCodeLc, record);
+    }
+    return map;
+  }, [result.productHubRecords]);
 
   if (rows.length === 0) return null;
 
@@ -373,6 +392,10 @@ function WarningCorrectionPanel({
             productCode !== row.productCode ||
             mmdd !== row.mmdd ||
             quantity !== String(row.quantity);
+          const productRecord =
+            productHubIndex.get(productCode.trim().toLowerCase()) ??
+            productHubIndex.get(row.productCodeLc);
+          const productDbKeys = getProductDbKeys(productRecord);
 
           return (
             <div
@@ -396,6 +419,24 @@ function WarningCorrectionPanel({
                     <span key={label}>{label}</span>
                   ))}
                 </div>
+              </div>
+
+              <div className="warning-db-keys">
+                <span>商品DB側キー</span>
+                {productDbKeys.length > 0 ? (
+                  <div className="warning-db-key-list">
+                    {productDbKeys.map((item) => (
+                      <span key={`${row.rowId}-${item.label}-${item.value}`}>
+                        <small>{item.label}</small>
+                        <strong>{item.value}</strong>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <strong className="warning-db-key-empty">
+                    {productRecord ? "登録キーなし" : "商品DB未登録"}
+                  </strong>
+                )}
               </div>
 
               <div className="warning-fix-inputs">

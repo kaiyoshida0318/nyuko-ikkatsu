@@ -102,6 +102,7 @@ export async function runNyukoProcess(
 
   return {
     extracted,
+    productHubRecords: productRecords,
     matchResult,
     neRows,
     kintoneRows,

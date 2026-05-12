@@ -1513,6 +1513,51 @@ tr:last-child td {
   white-space: nowrap;
 }
 
+.warning-db-keys {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: var(--radius-md);
+  background: rgba(246, 249, 255, 0.9);
+}
+
+.warning-db-keys > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.warning-db-key-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.warning-db-key-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.warning-db-key-list small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.warning-db-key-list strong,
+.warning-db-key-empty {
+  color: #0f3f9d;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .warning-fix-inputs {
   display: grid;
   grid-template-columns: minmax(220px, 1.5fr) minmax(92px, 0.5fr) minmax(92px, 0.5fr) minmax(130px, 0.7fr) auto;
