@@ -47,59 +47,7 @@ function mergeFiles(current: SelectedFiles, incomingFiles: File[]): SelectedFile
   return next
 }
 
-function FileCard({
-  title,
-  description,
-  isDragging = false,
-  onOpen,
-  onDragEnter,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  children,
-}: {
-  title: string
-  description: string
-  isDragging?: boolean
-  onOpen: () => void
-  onDragEnter?: (event: DragEvent<HTMLElement>) => void
-  onDragOver?: (event: DragEvent<HTMLElement>) => void
-  onDragLeave?: (event: DragEvent<HTMLElement>) => void
-  onDrop?: (event: DragEvent<HTMLElement>) => void
-  children: ReactNode
-}) {
-  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onOpen()
-    }
-  }
-
-  return (
-    <section
-      className={`file-card ${isDragging ? 'is-specific-dragging' : ''}`}
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={handleKeyDown}
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      <div className="file-card-head">
-        <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
-        </div>
-        <span className="specific-drop-badge">{isDragging ? 'ここにドロップ' : 'ドロップor選択'}</span>
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function ProductHubCard({
+function ProductHubSettingsPanel({
   settings,
   onChange,
 }: {
@@ -118,16 +66,17 @@ function ProductHubCard({
   }
 
   return (
-    <section className="product-db-card">
-      <div className="file-card-head">
+    <div className="product-hub-settings" role="region" aria-label="商品DB連携設定">
+      <div className="product-hub-settings-head">
         <div>
-          <h3>2. 商品DB連携</h3>
+          <p className="eyebrow">PRODUCT DB</p>
+          <h2>商品DB連携</h2>
           <p>配送依頼書の商品コードだけを product-data-hub から取得します。</p>
         </div>
-        <span className={`specific-drop-badge ${isReady ? 'specific-drop-badge--good' : ''}`}>{isReady ? '設定済み' : '未設定'}</span>
+        <span className={`status-badge ${isReady ? 'status-badge--good' : 'status-badge--warn'}`}>{isReady ? '設定済み' : '未設定'}</span>
       </div>
 
-      <div className="settings-grid">
+      <div className="settings-grid settings-grid--header">
         <label className="setting-field">
           <span>商品DB API URL</span>
           <input
@@ -148,8 +97,8 @@ function ProductHubCard({
         </label>
       </div>
 
-      <p className="settings-note">商品情報・オーダー状況は入庫一括内に保存せず、処理時だけAPIから取得します。</p>
-    </section>
+      <p className="settings-note settings-note--compact">API URLとREAD API KEYだけ保存します。商品情報・オーダー状況は処理時にだけ取得します。</p>
+    </div>
   )
 }
 
@@ -289,13 +238,12 @@ export default function NyukoApp() {
   const [unknownFiles, setUnknownFiles] = useState<File[]>([])
   const [productHubSettings, setProductHubSettings] = useState<ProductHubSettings>(loadProductHubSettings)
   const [isDragging, setIsDragging] = useState(false)
-  const [specificDragging, setSpecificDragging] = useState(false)
+  const [isProductHubPanelOpen, setIsProductHubPanelOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [activeTab, setActiveTab] = useState<PreviewTab>('extracted')
   const bulkInputRef = useRef<HTMLInputElement>(null)
-  const packingInputRef = useRef<HTMLInputElement>(null)
 
   const productHubReady = Boolean(productHubSettings.apiUrl.trim() && productHubSettings.apiKey.trim())
   const canRun = files.packingFiles.length > 0 && productHubReady && !isProcessing
@@ -320,10 +268,6 @@ export default function NyukoApp() {
 
   function openBulkFilePicker() {
     bulkInputRef.current?.click()
-  }
-
-  function openPackingFilePicker() {
-    packingInputRef.current?.click()
   }
 
   function handleDropZoneKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -363,51 +307,6 @@ export default function NyukoApp() {
   function handleBulkInput(event: ChangeEvent<HTMLInputElement>) {
     acceptFiles(Array.from(event.target.files ?? []))
     event.target.value = ''
-  }
-
-  function acceptPackingFiles(incoming: File[]) {
-    const allowedFiles = incoming.filter((file) => file.name.toLowerCase().endsWith('.xlsx'))
-
-    if (allowedFiles.length === 0) {
-      setError('この枠にはP~.xlsxなどの配送依頼書をドロップしてください。')
-      return
-    }
-
-    setError(null)
-    setResult(null)
-    setFiles({ packingFiles: allowedFiles })
-  }
-
-  function handlePackingInput(event: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? [])
-    if (selected.length === 0) return
-    acceptPackingFiles(selected)
-    event.target.value = ''
-  }
-
-  function handlePackingDragEnter(event: DragEvent<HTMLElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    setIsDragging(false)
-    setSpecificDragging(true)
-  }
-
-  function handlePackingDragOver(event: DragEvent<HTMLElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    setIsDragging(false)
-    setSpecificDragging(true)
-  }
-
-  function handlePackingDragLeave(event: DragEvent<HTMLElement>) {
-    handleDragLeaveInside(event, () => setSpecificDragging(false))
-  }
-
-  function handlePackingDrop(event: DragEvent<HTMLElement>) {
-    event.preventDefault()
-    event.stopPropagation()
-    setSpecificDragging(false)
-    acceptPackingFiles(Array.from(event.dataTransfer.files))
   }
 
   function removePackingFile(targetIndex: number) {
@@ -475,15 +374,34 @@ export default function NyukoApp() {
 
   return (
     <main className="page-shell">
-      <section className="hero hero--symbol-only" aria-label="入庫一括">
-        <img className="hero-symbol" src={`${assetBasePath}/symbol.png`} alt="入庫一括" />
-      </section>
+      <header className="app-header" aria-label="入庫一括">
+        <div className="app-header-brand">
+          <img className="app-symbol" src={`${assetBasePath}/symbol.png`} alt="入庫一括" />
+        </div>
+
+        <div className="app-header-actions">
+          <button
+            className={`product-hub-toggle ${productHubReady ? 'product-hub-toggle--ready' : 'product-hub-toggle--unset'}`}
+            type="button"
+            onClick={() => setIsProductHubPanelOpen((current) => !current)}
+            aria-expanded={isProductHubPanelOpen}
+          >
+            <span className="product-hub-toggle-dot" />
+            <span className="product-hub-toggle-label">商品DB</span>
+            <strong>{productHubReady ? '接続済み' : '未設定'}</strong>
+          </button>
+        </div>
+
+        {isProductHubPanelOpen && (
+          <ProductHubSettingsPanel settings={productHubSettings} onChange={setProductHubSettings} />
+        )}
+      </header>
 
       <section
         className={`drop-zone ${isDragging ? 'is-dragging' : ''} ${selectedFileCount > 0 ? 'has-files' : ''}`}
         role="button"
         tabIndex={0}
-        aria-label="配送依頼書をまとめて選択またはドロップ"
+        aria-label="ラクマート配送依頼書を選択またはドロップ"
         onClick={openBulkFilePicker}
         onKeyDown={handleDropZoneKeyDown}
         onDragEnter={() => setIsDragging(true)}
@@ -510,60 +428,44 @@ export default function NyukoApp() {
           </div>
           <div className="drop-copy">
             <p className="eyebrow">UPLOAD</p>
-            <h2>{isDragging ? 'ここにドロップして追加' : '配送依頼書をドロップor選択'}</h2>
+            <h2>{isDragging ? 'ここにドロップして追加' : 'ラクマート配送依頼書をドロップor選択'}</h2>
             <div className="drop-hints" aria-hidden="true">
               <span>P~.xlsx 複数可</span>
-              <span>商品情報は商品DBから取得</span>
-              <span>オーダー状況も商品DBから取得</span>
+              <span>商品情報は自動取得</span>
+              <span>オーダー状況も自動取得</span>
             </div>
           </div>
         </div>
         <div className="drop-zone-side">
           <span className="drop-selected-count">{selectedFileCount > 0 ? `${selectedFileCount}ファイル選択中` : '未選択'}</span>
+          <span className="upload-button upload-button--fake">ファイルを選択</span>
         </div>
       </section>
 
-      <section className="file-grid file-grid--two">
-        <FileCard
-          title="1. ラクマート配送依頼書"
-          description="P~.xlsx / 複数可 / 梱包リストシートを使用"
-          isDragging={specificDragging}
-          onOpen={openPackingFilePicker}
-          onDragEnter={handlePackingDragEnter}
-          onDragOver={handlePackingDragOver}
-          onDragLeave={handlePackingDragLeave}
-          onDrop={handlePackingDrop}
-        >
-          <input
-            ref={packingInputRef}
-            className="drop-zone-input"
-            type="file"
-            multiple
-            accept=".xlsx"
-            onClick={(event) => event.stopPropagation()}
-            onChange={handlePackingInput}
-          />
-          {files.packingFiles.length === 0 ? (
-            <EmptyText>未選択</EmptyText>
-          ) : (
-            <ul className="file-list">
-              {files.packingFiles.map((file, index) => (
-                <li key={`${file.name}-${file.size}-${index}`}>
-                  <div className="file-row-main">
-                    <span>{file.name}</span>
-                    <small>{formatFileSize(file)}</small>
-                  </div>
-                  <button className="file-remove-button" type="button" onClick={(event) => { event.stopPropagation(); removePackingFile(index) }} onKeyDown={(event) => event.stopPropagation()} aria-label={`${file.name}を削除`}>
-                    削除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </FileCard>
-
-        <ProductHubCard settings={productHubSettings} onChange={setProductHubSettings} />
-      </section>
+      {files.packingFiles.length > 0 && (
+        <section className="selected-files-panel">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">SELECTED</p>
+              <h2>選択中の配送依頼書</h2>
+            </div>
+            <Pill tone="good">{files.packingFiles.length}ファイル</Pill>
+          </div>
+          <ul className="file-list file-list--selected">
+            {files.packingFiles.map((file, index) => (
+              <li key={`${file.name}-${file.size}-${index}`}>
+                <div className="file-row-main">
+                  <span>{file.name}</span>
+                  <small>{formatFileSize(file)}</small>
+                </div>
+                <button className="file-remove-button" type="button" onClick={() => removePackingFile(index)} aria-label={`${file.name}を削除`}>
+                  削除
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {unknownFiles.length > 0 && (
         <section className="notice notice--warn">
@@ -586,7 +488,7 @@ export default function NyukoApp() {
         <div>
           <p className="eyebrow">RUN</p>
           <h2>入庫処理を実行</h2>
-          <p>配送依頼書と商品DB設定が揃うと処理できます。商品情報・オーダー状況は処理時にproduct-data-hubから取得します。</p>
+          <p>配送依頼書と商品DB連携が揃うと処理できます。商品情報・オーダー状況は処理時にproduct-data-hubから取得します。</p>
         </div>
         <div className="action-buttons">
           <button className="secondary-button" type="button" onClick={clearAll}>クリア</button>
@@ -599,7 +501,7 @@ export default function NyukoApp() {
       {!productHubReady && (
         <section className="notice notice--warn">
           <strong>商品DB連携が未設定です</strong>
-          <span>商品DB API URL と READ API KEY を入力すると処理できます。</span>
+          <span>ヘッダー右側の「商品DB」から API URL と READ API KEY を入力すると処理できます。</span>
         </section>
       )}
 
