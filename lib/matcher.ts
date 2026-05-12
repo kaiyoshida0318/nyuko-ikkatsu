@@ -18,6 +18,38 @@ function orderMatchesKey(orderValue: string, key: string): boolean {
   return pattern.test(orderValue);
 }
 
+
+type ParsedOrderKey = {
+  mmdd: string;
+  quantity: number;
+};
+
+function parseLeadingOrderKey(orderValue: string): ParsedOrderKey | null {
+  const matched = orderValue.match(/^(\d{4})-(\d+)/);
+  if (!matched) return null;
+  const quantity = Number(matched[2]);
+  if (!Number.isFinite(quantity)) return null;
+  return { mmdd: matched[1], quantity };
+}
+
+function replaceLeadingOrderQuantity(
+  orderValue: string,
+  mmdd: string,
+  originalQuantity: number,
+  remainingQuantity: number,
+): string {
+  const pattern = new RegExp(
+    `^${escapeRegExp(mmdd)}-${escapeRegExp(String(originalQuantity))}(?!\\d)`,
+  );
+  return orderValue.replace(pattern, `${mmdd}-${remainingQuantity}`);
+}
+
+function getReceivedQuantity(row: ExtractedRow): number {
+  return Number.isFinite(row.receivedQuantity) && row.receivedQuantity > 0
+    ? row.receivedQuantity
+    : row.quantity;
+}
+
 function groupExtracted(rows: ExtractedRow[]): Map<string, ExtractedRow[]> {
   const grouped = new Map<string, ExtractedRow[]>();
   for (const row of rows) {
@@ -48,7 +80,7 @@ export function matchAndConsume(
     const productCode = incomingRows[0]?.productCode ?? productCodeLc;
     const deliveredKeys = incomingRows.map((row) => row.key);
     const incomingQuantity = incomingRows.reduce(
-      (sum, row) => sum + row.quantity,
+      (sum, row) => sum + getReceivedQuantity(row),
       0,
     );
     const record = orderIndex.get(productCodeLc);
@@ -85,12 +117,50 @@ export function matchAndConsume(
     }));
 
     for (const incoming of incomingRows) {
-      const hitIndex = pairs.findIndex(
+      const receivedQuantity = getReceivedQuantity(incoming);
+      let matchedOrderQuantity = incoming.quantity;
+      let hitIndex = pairs.findIndex(
         (pair) =>
           pair.order !== null && orderMatchesKey(pair.order, incoming.key),
       );
+
+      if (hitIndex < 0) {
+        hitIndex = pairs.findIndex((pair) => {
+          if (pair.order === null) return false;
+          const parsed = parseLeadingOrderKey(pair.order);
+          if (!parsed) return false;
+          return (
+            parsed.mmdd === incoming.mmdd &&
+            parsed.quantity >= receivedQuantity
+          );
+        });
+
+        if (hitIndex >= 0) {
+          const hitPair = pairs[hitIndex];
+          const parsed = hitPair.order
+            ? parseLeadingOrderKey(hitPair.order)
+            : null;
+          matchedOrderQuantity = parsed?.quantity ?? incoming.quantity;
+        }
+      }
+
       if (hitIndex >= 0) {
-        pairs[hitIndex] = { order: null, rm: null };
+        const hitPair = pairs[hitIndex];
+        const remainingQuantity = matchedOrderQuantity - receivedQuantity;
+
+        if (hitPair.order !== null && remainingQuantity > 0) {
+          pairs[hitIndex] = {
+            order: replaceLeadingOrderQuantity(
+              hitPair.order,
+              incoming.mmdd,
+              matchedOrderQuantity,
+              remainingQuantity,
+            ),
+            rm: hitPair.rm,
+          };
+        } else {
+          pairs[hitIndex] = { order: null, rm: null };
+        }
       } else {
         const currentOrders = pairs
           .map((pair) => pair.order)
@@ -181,7 +251,10 @@ export function buildNyukoRows(
 
   for (const [productCodeLc, incomingRows] of grouped.entries()) {
     const productCode = incomingRows[0]?.productCode ?? productCodeLc;
-    const quantity = incomingRows.reduce((sum, row) => sum + row.quantity, 0);
+    const quantity = incomingRows.reduce(
+      (sum, row) => sum + getReceivedQuantity(row),
+      0,
+    );
     const master = masterIndex.get(productCodeLc);
 
     rows.push({

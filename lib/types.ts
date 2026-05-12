@@ -15,6 +15,7 @@ export type ExtractedRow = {
   productCodeLc: string;
   mmdd: string;
   quantity: number;
+  receivedQuantity: number;
   key: string;
   packingQuantities: number[];
   quantityMismatch: boolean;

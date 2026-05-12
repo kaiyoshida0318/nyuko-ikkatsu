@@ -174,6 +174,10 @@ export async function parsePackingFiles(
         quantity: row.quantity,
         key: row.key,
         packingQuantities,
+        receivedQuantity:
+          quantityMismatch && packingQuantities.length === 1
+            ? packingQuantities[0]
+            : row.quantity,
         quantityMismatch,
         sourceNote: row.sourceNote,
         sourceFile: row.sourceFile,

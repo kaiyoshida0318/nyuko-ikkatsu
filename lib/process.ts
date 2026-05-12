@@ -45,7 +45,11 @@ function applyCorrections(
       row.productCode,
     );
     const mmdd = normalizeMmdd(correction.mmdd ?? "", row.mmdd);
+    const hasQuantityCorrection = correction.quantity !== undefined;
     const quantity = normalizeQuantity(correction.quantity ?? "", row.quantity);
+    const receivedQuantity = hasQuantityCorrection
+      ? quantity
+      : row.receivedQuantity;
     const key = `${mmdd}-${quantity}`;
     const quantityMismatch =
       row.packingQuantities.length > 0 &&
@@ -57,6 +61,7 @@ function applyCorrections(
       productCodeLc: productCode.toLowerCase(),
       mmdd,
       quantity,
+      receivedQuantity,
       key,
       quantityMismatch,
     };

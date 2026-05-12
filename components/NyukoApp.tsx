@@ -213,6 +213,7 @@ function WarningList({ warnings }: { warnings: MatchWarning[] }) {
                 <strong>{warning.productCode}</strong>
                 <span>読み取りキー: {warning.key}</span>
                 <span>読み取り数量: {warning.expectedQuantity ?? "-"}</span>
+                <span>出力数量: 梱包数を優先</span>
                 <span>
                   梱包数:{" "}
                   {warning.packingQuantities?.length
@@ -406,6 +407,7 @@ function WarningCorrectionPanel({
                 <div>
                   <strong>{row.productCode}</strong>
                   <span>現在キー: {row.key}</span>
+                  <span>入庫数: {row.receivedQuantity}</span>
                   <span>
                     梱包数:{" "}
                     {row.packingQuantities.length
@@ -543,7 +545,8 @@ function toExtractedPreview(rows: ExtractedRow[]) {
   return rows.map((row) => ({
     商品コード: row.productCode,
     MMDD: row.mmdd,
-    数量: row.quantity,
+    読み取り数量: row.quantity,
+    入庫数: row.receivedQuantity,
     消し込みキー: row.key,
     梱包数: row.packingQuantities.length
       ? row.packingQuantities.join(" / ")
