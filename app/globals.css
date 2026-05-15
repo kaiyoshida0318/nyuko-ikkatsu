@@ -2056,3 +2056,45 @@ body {
   color: var(--muted);
   line-height: 1.55;
 }
+
+.other-fix-row.is-edited td {
+  background: rgba(239, 245, 255, 0.92);
+}
+
+.other-fix-row.is-edited:hover td {
+  background: rgba(229, 239, 255, 0.96);
+}
+
+.other-edit-cell input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.96);
+  font-size: 12px;
+  outline: none;
+}
+
+.other-edit-cell input:focus {
+  border-color: rgba(37, 99, 235, 0.58);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.other-edit-cell--category {
+  min-width: 130px;
+}
+
+.other-edit-cell--name {
+  min-width: 220px;
+}
+
+.other-edit-cell--note {
+  min-width: 260px;
+}
+
+.other-fix-table .other-note-cell {
+  min-width: 320px;
+  max-width: 520px;
+}

@@ -70,11 +70,29 @@ function applyCorrections(
   });
 }
 
-function applyOtherDeletions(
+function getOptionalCorrectionValue(
+  value: string | undefined,
+  fallback: string,
+): string {
+  return value === undefined ? fallback : value;
+}
+
+function applyOtherCorrections(
   rows: OtherPackingRow[],
   corrections: RowCorrectionMap,
 ): OtherPackingRow[] {
-  return rows.filter((row) => !corrections[row.rowId]?.deleted);
+  return rows.flatMap((row) => {
+    const correction = corrections[row.rowId];
+    if (!correction) return [row];
+    if (correction.deleted) return [];
+
+    return [{
+      ...row,
+      category: getOptionalCorrectionValue(correction.category, row.category),
+      itemName: getOptionalCorrectionValue(correction.itemName, row.itemName),
+      note: getOptionalCorrectionValue(correction.note, row.note),
+    }];
+  });
 }
 
 export async function runNyukoProcess(
@@ -88,7 +106,7 @@ export async function runNyukoProcess(
 
   const parsed = await parsePackingFiles(files.packingFiles);
   const extracted = applyCorrections(parsed.extracted, corrections);
-  const otherRows = applyOtherDeletions(parsed.otherRows, corrections);
+  const otherRows = applyOtherCorrections(parsed.otherRows, corrections);
   const productCodes = [...new Set(extracted.map((row) => row.productCode))];
   const productRecords = await fetchProductHubRecords(
     productHubSettings,

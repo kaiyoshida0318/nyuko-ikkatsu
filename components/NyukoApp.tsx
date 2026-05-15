@@ -236,12 +236,20 @@ function getProductDbKeys(record: ProductHubRecord | undefined) {
     );
 }
 
+const OTHER_CATEGORY_OPTIONS = ["新商品", "試し買い", "備品"] as const;
+
 function OtherRowsTable({
   rows,
+  corrections,
+  onChange,
+  onResetRow,
   onDeleteRow,
   isProcessing,
 }: {
   rows: OtherPackingRow[];
+  corrections: RowCorrectionMap;
+  onChange: (rowId: string, patch: RowCorrection) => void;
+  onResetRow: (rowId: string) => void;
   onDeleteRow: (rowId: string) => void;
   isProcessing: boolean;
 }) {
@@ -252,7 +260,7 @@ function OtherRowsTable({
       <div className="other-table-title">
         <div>
           <h3>その他</h3>
-          <p>備考に「●商品コード▲mmdd-数量」がない行です。NE/kintone更新には入れず、入庫リストの末尾にその他として追加します。</p>
+          <p>備考に「●商品コード▲mmdd-数量」がない行です。分類・品名・備考を入力して、入庫リストの末尾にその他として追加します。</p>
         </div>
         <Pill tone="warn">{rows.length}行</Pill>
       </div>
@@ -262,45 +270,104 @@ function OtherRowsTable({
           <thead>
             <tr>
               <th>画像</th>
+              <th>分類</th>
+              <th>品名</th>
               <th>梱包数</th>
               <th>備考</th>
               <th>商品情報</th>
-              <th>元ファイル</th>
+              <th>箱詰め備考</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr className="other-fix-row" key={row.rowId}>
-                <td className="other-image-cell">
-                  {row.image ? (
-                    <img src={row.image.dataUrl} alt="その他商品画像" />
-                  ) : (
-                    <span>画像なし</span>
-                  )}
-                </td>
-                <td className="other-count-cell">
-                  {row.packingQuantity ?? "未取得"}
-                </td>
-                <td className="other-note-cell">{row.sourceNote}</td>
-                <td className="other-info-cell">{row.productInfo}</td>
-                <td className="warning-source-cell" title={row.sourceFile}>
-                  {row.sourceFile}
-                </td>
-                <td className="warning-action-cell">
-                  <button
-                    className="secondary-button warning-delete-button"
-                    type="button"
-                    onClick={() => onDeleteRow(row.rowId)}
-                    disabled={isProcessing}
-                  >
-                    削除
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const correction = corrections[row.rowId];
+              const category = getCorrectionValue(correction, "category", row.category);
+              const itemName = getCorrectionValue(correction, "itemName", row.itemName);
+              const note = getCorrectionValue(correction, "note", row.note);
+              const changed =
+                category !== row.category ||
+                itemName !== row.itemName ||
+                note !== row.note;
+
+              return (
+                <tr className={`other-fix-row ${changed ? "is-edited" : ""}`} key={row.rowId}>
+                  <td className="other-image-cell">
+                    {row.image ? (
+                      <img src={row.image.dataUrl} alt="その他商品画像" />
+                    ) : (
+                      <span>画像なし</span>
+                    )}
+                  </td>
+                  <td className="other-edit-cell other-edit-cell--category">
+                    <input
+                      aria-label="その他の分類"
+                      list="other-category-options"
+                      type="text"
+                      value={category}
+                      placeholder="分類"
+                      onChange={(event) =>
+                        onChange(row.rowId, { category: event.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="other-edit-cell other-edit-cell--name">
+                    <input
+                      aria-label="その他の品名"
+                      type="text"
+                      value={itemName}
+                      placeholder="品名"
+                      onChange={(event) =>
+                        onChange(row.rowId, { itemName: event.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="other-count-cell">
+                    {row.packingQuantity ?? "未取得"}
+                  </td>
+                  <td className="other-edit-cell other-edit-cell--note">
+                    <input
+                      aria-label="その他の備考"
+                      type="text"
+                      value={note}
+                      placeholder="備考"
+                      onChange={(event) =>
+                        onChange(row.rowId, { note: event.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="other-info-cell">{row.productInfo}</td>
+                  <td className="other-note-cell">{row.sourceNote}</td>
+                  <td className="warning-action-cell">
+                    <div className="warning-action-buttons">
+                      <button
+                        className="secondary-button warning-reset-button"
+                        type="button"
+                        onClick={() => onResetRow(row.rowId)}
+                        disabled={!changed || isProcessing}
+                      >
+                        元に戻す
+                      </button>
+                      <button
+                        className="secondary-button warning-delete-button"
+                        type="button"
+                        onClick={() => onDeleteRow(row.rowId)}
+                        disabled={isProcessing}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+        <datalist id="other-category-options">
+          {OTHER_CATEGORY_OPTIONS.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
       </div>
     </div>
   );
@@ -511,6 +578,9 @@ function ExtractedRowsEditPanel({
 
       <OtherRowsTable
         rows={otherRows}
+        corrections={corrections}
+        onChange={onChange}
+        onResetRow={onResetRow}
         onDeleteRow={onDeleteRow}
         isProcessing={isProcessing}
       />
@@ -581,9 +651,12 @@ function toExtractedPreview(rows: ExtractedRow[]) {
 function toOtherPreview(rows: OtherPackingRow[]) {
   return rows.map((row) => ({
     画像: row.image ? "画像あり" : "画像なし",
+    分類: row.category,
+    品名: row.itemName,
     梱包数: row.packingQuantity ?? "",
-    備考: row.sourceNote,
+    備考: row.note,
     商品情報: row.productInfo,
+    箱詰め備考: row.sourceNote,
     元ファイル: row.sourceFile,
   }));
 }
@@ -771,6 +844,20 @@ export default function NyukoApp() {
     setCorrections({});
   }
 
+  function getEffectiveOtherRows() {
+    if (!result) return [];
+    return result.otherRows.flatMap((row) => {
+      const correction = corrections[row.rowId];
+      if (correction?.deleted) return [];
+      return [{
+        ...row,
+        category: correction?.category ?? row.category,
+        itemName: correction?.itemName ?? row.itemName,
+        note: correction?.note ?? row.note,
+      }];
+    });
+  }
+
   function downloadNe() {
     if (!result) return;
     saveAs(makeNeCsvBlob(result.neRows), "NE更新.csv");
@@ -783,25 +870,25 @@ export default function NyukoApp() {
 
   function downloadNyuko() {
     if (!result) return;
-    saveAs(makeNyukoXlsxBlob(result.nyukoRows, result.otherRows), "入庫リスト.xlsx");
+    saveAs(makeNyukoXlsxBlob(result.nyukoRows, getEffectiveOtherRows()), "入庫リスト.xlsx");
   }
 
   async function downloadZip() {
     if (!result) return;
-    const blob = await makeZipBlob(result);
+    const blob = await makeZipBlob({ ...result, otherRows: getEffectiveOtherRows() });
     saveAs(blob, "入庫一括_出力.zip");
   }
 
   const previewRows: Record<string, unknown>[] = useMemo(() => {
     if (!result) return [];
     if (activeTab === "extracted") return toExtractedPreview(result.extracted);
-    if (activeTab === "other") return toOtherPreview(result.otherRows);
+    if (activeTab === "other") return toOtherPreview(getEffectiveOtherRows());
     if (activeTab === "ne")
       return result.neRows as unknown as Record<string, unknown>[];
     if (activeTab === "kintone")
       return result.kintoneRows as unknown as Record<string, unknown>[];
     return result.nyukoRows as unknown as Record<string, unknown>[];
-  }, [activeTab, result]);
+  }, [activeTab, result, corrections]);
 
   return (
     <main className="page-shell">

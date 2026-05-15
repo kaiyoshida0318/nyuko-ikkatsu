@@ -38,6 +38,9 @@ export type OtherPackingRow = {
   productInfo: string;
   packingQuantity: number | null;
   image?: PackingImage;
+  category: string;
+  itemName: string;
+  note: string;
 };
 
 export type PackingParseResult = {
@@ -130,6 +133,9 @@ export type RowCorrection = {
   productCode?: string;
   mmdd?: string;
   quantity?: string;
+  category?: string;
+  itemName?: string;
+  note?: string;
   deleted?: boolean;
 };
 

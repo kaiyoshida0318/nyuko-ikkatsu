@@ -40,14 +40,13 @@ function buildNyukoSheetData(rows: NyukoListRow[], otherRows: OtherPackingRow[])
   if (otherRows.length > 0) {
     data.push([])
     data.push(['その他'])
-    data.push(['画像', '梱包数', '備考', '商品情報', '元ファイル'])
+    data.push(['分類', '品名', '梱包数', '備考'])
     for (const row of otherRows) {
       data.push([
-        row.image ? '画像あり' : '',
+        row.category,
+        row.itemName,
         row.packingQuantity ?? '',
-        row.sourceNote,
-        row.productInfo,
-        row.sourceFile,
+        row.note,
       ])
     }
   }
@@ -62,7 +61,7 @@ export function makeNyukoXlsxBlob(rows: NyukoListRow[], otherRows: OtherPackingR
     { wch: 22 },
     { wch: 35 },
     { wch: 8 },
-    { wch: 8 },
+    { wch: 12 },
     { wch: 45 },
   ]
 

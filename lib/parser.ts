@@ -320,6 +320,9 @@ export async function parsePackingFiles(
           productInfo,
           packingQuantity,
           image: imageByRow.get(rowIndex),
+          category: "",
+          itemName: "",
+          note: "",
         });
         continue;
       }
