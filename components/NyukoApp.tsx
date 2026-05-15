@@ -390,8 +390,14 @@ function ExtractedRowsEditPanel({
   onApply: () => void;
   isProcessing: boolean;
 }) {
-  const rows = useMemo(() => buildEditableRows(result), [result]);
-  const otherRows = result.otherRows;
+  const rows = useMemo(
+    () => buildEditableRows(result).filter(({ row }) => !corrections[row.rowId]?.deleted),
+    [result, corrections],
+  );
+  const otherRows = useMemo(
+    () => result.otherRows.filter((row) => !corrections[row.rowId]?.deleted),
+    [result.otherRows, corrections],
+  );
   const productHubIndex = useMemo(() => {
     const map = new Map<string, ProductHubRecord>();
     for (const record of result.productHubRecords) {
@@ -670,6 +676,26 @@ function tabCount(result: ProcessResult | null, tab: PreviewTab) {
   return result.nyukoRows.length;
 }
 
+type RunOptions = {
+  keepCurrentResult?: boolean;
+  keepActiveTab?: boolean;
+  preserveScroll?: boolean;
+};
+
+function restoreWindowPosition(position: { x: number; y: number } | null) {
+  if (!position || typeof window === "undefined") return;
+
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({
+        left: position.x,
+        top: position.y,
+        behavior: "auto",
+      });
+    });
+  });
+}
+
 export default function NyukoApp() {
   const [files, setFiles] = useState<SelectedFiles>(emptyFiles);
   const [unknownFiles, setUnknownFiles] = useState<File[]>([]);
@@ -808,13 +834,28 @@ export default function NyukoApp() {
       },
     };
     setCorrections(nextCorrections);
-    await runWithCorrections(nextCorrections);
+    await runWithCorrections(nextCorrections, {
+      keepActiveTab: true,
+      keepCurrentResult: true,
+      preserveScroll: true,
+    });
   }
 
-  async function runWithCorrections(nextCorrections: RowCorrectionMap) {
+  async function runWithCorrections(
+    nextCorrections: RowCorrectionMap,
+    options: RunOptions = {},
+  ) {
+    const scrollPosition =
+      options.preserveScroll && typeof window !== "undefined"
+        ? { x: window.scrollX, y: window.scrollY }
+        : null;
+
     setIsProcessing(true);
     setError(null);
-    setResult(null);
+    if (!options.keepCurrentResult) {
+      setResult(null);
+    }
+
     try {
       const processResult = await runNyukoProcess(
         files,
@@ -822,11 +863,15 @@ export default function NyukoApp() {
         nextCorrections,
       );
       setResult(processResult);
-      setActiveTab("extracted");
+      if (!options.keepActiveTab) {
+        setActiveTab("extracted");
+      }
+      restoreWindowPosition(scrollPosition);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "処理中にエラーが発生しました。",
       );
+      restoreWindowPosition(scrollPosition);
     } finally {
       setIsProcessing(false);
     }
@@ -834,6 +879,14 @@ export default function NyukoApp() {
 
   async function handleRun() {
     await runWithCorrections(corrections);
+  }
+
+  async function handleApplyCorrections() {
+    await runWithCorrections(corrections, {
+      keepActiveTab: true,
+      keepCurrentResult: true,
+      preserveScroll: true,
+    });
   }
 
   function clearAll() {
@@ -1110,7 +1163,7 @@ export default function NyukoApp() {
           onChange={updateCorrection}
           onResetRow={resetCorrection}
           onDeleteRow={deleteRow}
-          onApply={handleRun}
+          onApply={handleApplyCorrections}
           isProcessing={isProcessing}
         />
       )}
