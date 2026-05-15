@@ -2244,3 +2244,69 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Ordered reflection workflow */
+.reflect-grid--ordered {
+  align-items: stretch;
+}
+
+.reflect-step-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.reflect-step-title span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.reflect-card--locked {
+  background: #f8fafc;
+  opacity: 0.78;
+}
+
+.reflect-card--locked .reflect-step-title span {
+  background: #94a3b8;
+}
+
+.reflect-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--text);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.reflect-link-button:hover {
+  border-color: var(--accent);
+}
+
+.reflect-link-button.is-disabled,
+.reflect-check.is-disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.reflect-link-button.is-disabled {
+  background: #f1f5f9;
+  pointer-events: none;
+}

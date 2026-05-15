@@ -40,10 +40,19 @@ const initialReflectStatus: ReflectStatusMap = {
   nyuko: "pending",
 };
 
+function buildInitialReflectStatus(result: ProcessResult): ReflectStatusMap {
+  return {
+    productDb: result.productDbUpdateRows.length === 0 ? "done" : "pending",
+    ne: result.neRows.length === 0 ? "done" : "pending",
+    nyuko: "pending",
+  };
+}
+
 const assetBasePath =
   process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "";
 const PRODUCT_HUB_API_URL_STORAGE_KEY = "nyuko-ikkatsu.productHub.apiUrl";
 const PRODUCT_HUB_API_KEY_STORAGE_KEY = "nyuko-ikkatsu.productHub.apiKey";
+const NEXT_ENGINE_PRODUCT_UPLOAD_URL = "https://main.next-engine.com/User_Syohin_Upload";
 
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
@@ -885,7 +894,7 @@ export default function NyukoApp() {
         nextCorrections,
       );
       setResult(processResult);
-      setReflectStatus(initialReflectStatus);
+      setReflectStatus(buildInitialReflectStatus(processResult));
       setReflectError(null);
       if (!options.keepActiveTab) {
         setActiveTab("extracted");
@@ -941,14 +950,29 @@ export default function NyukoApp() {
     setReflectStatus((current) => ({ ...current, [key]: status }));
   }
 
+  function setNeDone(isDone: boolean) {
+    setReflectStatus((current) => ({
+      ...current,
+      ne: isDone ? "done" : "exported",
+      nyuko: isDone ? current.nyuko : "pending",
+    }));
+  }
+
+  function setNyukoDone(isDone: boolean) {
+    setReflectStatus((current) => ({
+      ...current,
+      nyuko: isDone ? "done" : "exported",
+    }));
+  }
+
   function downloadNe() {
-    if (!result) return;
+    if (!result || reflectStatus.productDb !== "done") return;
     saveAs(makeNeCsvBlob(result.neRows), "NE更新.csv");
     updateReflectStatus("ne", "exported");
   }
 
   function downloadNyuko() {
-    if (!result) return;
+    if (!result || reflectStatus.ne !== "done") return;
     saveAs(makeNyukoXlsxBlob(result.nyukoRows, getEffectiveOtherRows()), "入庫リスト.xlsx");
     updateReflectStatus("nyuko", "exported");
   }
@@ -962,7 +986,11 @@ export default function NyukoApp() {
   }
 
   async function updateProductDb() {
-    if (!result) return;
+    if (!result || reflectStatus.productDb === "done" || reflectStatus.productDb === "updating") return;
+    if (result.productDbUpdateRows.length === 0) {
+      updateReflectStatus("productDb", "done");
+      return;
+    }
     setReflectError(null);
     updateReflectStatus("productDb", "updating");
     try {
@@ -986,6 +1014,19 @@ export default function NyukoApp() {
       return result.productDbUpdateRows as unknown as Record<string, unknown>[];
     return result.nyukoRows as unknown as Record<string, unknown>[];
   }, [activeTab, result, corrections]);
+
+  const isProductDbComplete = reflectStatus.productDb === "done";
+  const isNeComplete = reflectStatus.ne === "done";
+  const canUpdateProductDb =
+    (result?.productDbUpdateRows.length ?? 0) > 0 &&
+    reflectStatus.productDb !== "updating" &&
+    reflectStatus.productDb !== "done";
+  const canOperateNe = Boolean(result) && isProductDbComplete;
+  const canCompleteNe =
+    canOperateNe && (reflectStatus.ne === "exported" || reflectStatus.ne === "done");
+  const canOperateNyuko = Boolean(result) && isNeComplete;
+  const canCompleteNyuko =
+    canOperateNyuko && (reflectStatus.nyuko === "exported" || reflectStatus.nyuko === "done");
 
   return (
     <main className="page-shell">
@@ -1219,9 +1260,6 @@ export default function NyukoApp() {
               <p className="eyebrow">REFLECT</p>
               <h2>入庫反映</h2>
             </div>
-            <button type="button" className="zip-button" onClick={downloadZip}>
-              NE・入庫リストをZIP出力
-            </button>
           </div>
 
           {reflectError && (
@@ -1230,33 +1268,13 @@ export default function NyukoApp() {
             </div>
           )}
 
-          <div className="reflect-grid">
-            <article className="reflect-card">
+          <div className="reflect-grid reflect-grid--ordered">
+            <article className="reflect-card reflect-card--active">
               <div className="reflect-card-head">
-                <h3>NE更新</h3>
-                <span className={`reflect-status reflect-status--${reflectStatus.ne}`}>
-                  {reflectStatusLabel(reflectStatus.ne)}
-                </span>
-              </div>
-              <strong>{result.neRows.length}件</strong>
-              <button type="button" onClick={downloadNe}>
-                NE更新.csv 出力
-              </button>
-              <label className="reflect-check">
-                <input
-                  type="checkbox"
-                  checked={reflectStatus.ne === "done"}
-                  onChange={(event) =>
-                    updateReflectStatus("ne", event.target.checked ? "done" : "exported")
-                  }
-                />
-                反映完了
-              </label>
-            </article>
-
-            <article className="reflect-card">
-              <div className="reflect-card-head">
-                <h3>商品DB更新</h3>
+                <div className="reflect-step-title">
+                  <span>1</span>
+                  <h3>商品DB更新</h3>
+                </div>
                 <span className={`reflect-status reflect-status--${reflectStatus.productDb}`}>
                   {reflectStatusLabel(reflectStatus.productDb)}
                 </span>
@@ -1265,34 +1283,81 @@ export default function NyukoApp() {
               <button
                 type="button"
                 onClick={updateProductDb}
-                disabled={reflectStatus.productDb === "updating" || result.productDbUpdateRows.length === 0}
+                disabled={!canUpdateProductDb}
               >
-                {reflectStatus.productDb === "updating" ? "商品DB更新中…" : "商品DBを更新"}
+                {reflectStatus.productDb === "updating"
+                  ? "商品DB更新中…"
+                  : reflectStatus.productDb === "done"
+                    ? "更新完了"
+                    : result.productDbUpdateRows.length === 0
+                      ? "更新対象なし"
+                      : "商品DBを更新"}
               </button>
-              <small>該当する order_memo と rakumart_url を削除・更新します。</small>
+              <small>入庫済みの order_memo と対応する rakumart_url を削除し、残りを左詰めします。</small>
             </article>
 
-            <article className="reflect-card">
+            <article className={`reflect-card ${canOperateNe ? "reflect-card--active" : "reflect-card--locked"}`}>
               <div className="reflect-card-head">
-                <h3>入庫リスト出力</h3>
+                <div className="reflect-step-title">
+                  <span>2</span>
+                  <h3>NE更新</h3>
+                </div>
+                <span className={`reflect-status reflect-status--${reflectStatus.ne}`}>
+                  {reflectStatusLabel(reflectStatus.ne)}
+                </span>
+              </div>
+              <strong>{result.neRows.length}件</strong>
+              <button type="button" onClick={downloadNe} disabled={!canOperateNe}>
+                NE更新.csv 出力
+              </button>
+              <a
+                className={`reflect-link-button ${canOperateNe ? "" : "is-disabled"}`}
+                href={canOperateNe ? NEXT_ENGINE_PRODUCT_UPLOAD_URL : undefined}
+                target="_blank"
+                rel="noreferrer"
+                aria-disabled={!canOperateNe}
+                onClick={(event) => {
+                  if (!canOperateNe) event.preventDefault();
+                }}
+              >
+                NE更新画面を開く
+              </a>
+              <label className={`reflect-check ${canCompleteNe ? "" : "is-disabled"}`}>
+                <input
+                  type="checkbox"
+                  checked={reflectStatus.ne === "done"}
+                  disabled={!canCompleteNe}
+                  onChange={(event) => setNeDone(event.target.checked)}
+                />
+                反映完了
+              </label>
+              {!canOperateNe && <small>商品DB更新が完了すると操作できます。</small>}
+            </article>
+
+            <article className={`reflect-card ${canOperateNyuko ? "reflect-card--active" : "reflect-card--locked"}`}>
+              <div className="reflect-card-head">
+                <div className="reflect-step-title">
+                  <span>3</span>
+                  <h3>入庫リスト出力</h3>
+                </div>
                 <span className={`reflect-status reflect-status--${reflectStatus.nyuko}`}>
                   {reflectStatusLabel(reflectStatus.nyuko)}
                 </span>
               </div>
               <strong>{result.nyukoRows.length + getEffectiveOtherRows().length}行</strong>
-              <button type="button" onClick={downloadNyuko}>
+              <button type="button" onClick={downloadNyuko} disabled={!canOperateNyuko}>
                 入庫リスト.xlsx 出力
               </button>
-              <label className="reflect-check">
+              <label className={`reflect-check ${canCompleteNyuko ? "" : "is-disabled"}`}>
                 <input
                   type="checkbox"
                   checked={reflectStatus.nyuko === "done"}
-                  onChange={(event) =>
-                    updateReflectStatus("nyuko", event.target.checked ? "done" : "exported")
-                  }
+                  disabled={!canCompleteNyuko}
+                  onChange={(event) => setNyukoDone(event.target.checked)}
                 />
                 出力完了
               </label>
+              {!canOperateNyuko && <small>NE更新の反映完了後に出力できます。</small>}
             </article>
           </div>
         </section>
