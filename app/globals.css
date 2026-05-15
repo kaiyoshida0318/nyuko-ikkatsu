@@ -467,6 +467,40 @@ button:disabled {
   padding: 28px;
 }
 
+.action-panel--has-selection {
+  border-color: rgba(15, 159, 110, 0.24);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 255, 248, 0.9)),
+    var(--panel-strong);
+}
+
+.action-panel-main {
+  min-width: 0;
+}
+
+.action-selection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 159, 110, 0.22);
+  border-radius: 999px;
+  color: #076346;
+  background: var(--good-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.action-selection-status span {
+  color: #17815f;
+}
+
+.action-selection-status strong {
+  color: #055f43;
+}
+
 .action-buttons,
 .download-buttons {
   display: flex;
@@ -1334,6 +1368,19 @@ tr:last-child td {
     padding: 18px;
     border-radius: 22px;
   }
+
+  .action-panel {
+    align-items: stretch;
+  }
+
+  .action-buttons {
+    justify-content: stretch;
+  }
+
+  .action-buttons .primary-button,
+  .action-buttons .secondary-button {
+    flex: 1 1 160px;
+  }
 }
 
 /* Full-width app header: header = navigation bar, main sections = cards */
@@ -1881,4 +1928,3 @@ tr:last-child td {
     min-width: 1280px;
   }
 }
-

@@ -155,105 +155,6 @@ function EmptyText({ children }: { children: ReactNode }) {
   return <p className="empty-text">{children}</p>;
 }
 
-function WarningList({ warnings }: { warnings: MatchWarning[] }) {
-  const noProduct = warnings.filter((warning) => warning.type === "no_product");
-  const noKey = warnings.filter((warning) => warning.type === "no_key");
-  const quantityMismatch = warnings.filter(
-    (warning) => warning.type === "quantity_mismatch",
-  );
-
-  if (warnings.length === 0) {
-    return (
-      <section className="notice notice--good">
-        <strong>警告なし</strong>
-        <span>
-          すべての入庫データをproduct-data-hubのオーダー状況と照合できました。
-        </span>
-      </section>
-    );
-  }
-
-  return (
-    <section className="warnings">
-      <div className="section-title-row">
-        <div>
-          <p className="eyebrow">CHECK</p>
-          <h2>警告</h2>
-        </div>
-        <Pill tone="warn">{warnings.length}件</Pill>
-      </div>
-
-      {noProduct.length > 0 && (
-        <details className="warning-group warning-group--danger" open>
-          <summary>商品DB未登録商品 {noProduct.length}件</summary>
-          <div className="warning-list">
-            {noProduct.map((warning, index) => (
-              <div
-                className="warning-item"
-                key={`${warning.productCode}-${index}`}
-              >
-                <strong>{warning.productCode}</strong>
-                <span>届いたキー: {warning.deliveredKeys.join(" / ")}</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-
-      {quantityMismatch.length > 0 && (
-        <details className="warning-group warning-group--warn" open>
-          <summary>数量不一致 {quantityMismatch.length}件</summary>
-          <div className="warning-list">
-            {quantityMismatch.map((warning, index) => (
-              <div
-                className="warning-item"
-                key={`${warning.productCode}-${warning.key}-qty-${index}`}
-              >
-                <strong>{warning.productCode}</strong>
-                <span>読み取りキー: {warning.key}</span>
-                <span>読み取り数量: {warning.expectedQuantity ?? "-"}</span>
-                <span>出力数量: 梱包数を優先</span>
-                <span>
-                  梱包数:{" "}
-                  {warning.packingQuantities?.length
-                    ? warning.packingQuantities.join(" / ")
-                    : "未取得"}
-                </span>
-                {warning.sourceFile && (
-                  <span>元ファイル: {warning.sourceFile}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-
-      {noKey.length > 0 && (
-        <details className="warning-group warning-group--warn" open>
-          <summary>キー未一致 {noKey.length}件</summary>
-          <div className="warning-list">
-            {noKey.map((warning, index) => (
-              <div
-                className="warning-item"
-                key={`${warning.productCode}-${warning.key}-${index}`}
-              >
-                <strong>{warning.productCode}</strong>
-                <span>探したキー: {warning.key}</span>
-                <span>
-                  現在のオーダー:{" "}
-                  {warning.currentOrders?.length
-                    ? warning.currentOrders.join(" / ")
-                    : "なし"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-    </section>
-  );
-}
-
 type EditableExtractedRow = {
   row: ExtractedRow;
   warningLabels: string[];
@@ -924,17 +825,32 @@ export default function NyukoApp() {
         </section>
       )}
 
-      <section className="action-panel">
-        <div>
+      <section className={`action-panel ${selectedFileCount > 0 ? "action-panel--has-selection" : ""}`}>
+        <div className="action-panel-main">
           <p className="eyebrow">RUN</p>
-          <h2>入庫処理を実行</h2>
+          <h2>{selectedFileCount > 0 ? "選択中の配送依頼書を処理" : "入庫処理を実行"}</h2>
           <p>
-            配送依頼書と商品DB連携が揃うと処理できます。商品情報・オーダー状況は処理時にproduct-data-hubから取得します。
+            {selectedFileCount > 0
+              ? "選択中の配送依頼書を商品DBと照合して、NE更新・kintone更新・入庫リストを作成します。"
+              : "配送依頼書と商品DB連携が揃うと処理できます。商品情報・オーダー状況は処理時に商品DBから取得します。"}
           </p>
+          <div className="action-selection-status" aria-live="polite">
+            <span>選択中</span>
+            <strong>
+              {selectedFileCount > 0
+                ? `${selectedFileCount}ファイル`
+                : "ファイル未選択"}
+            </strong>
+          </div>
         </div>
         <div className="action-buttons">
-          <button className="secondary-button" type="button" onClick={clearAll}>
-            クリア
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={clearAll}
+            disabled={selectedFileCount === 0 && unknownFiles.length === 0 && !result}
+          >
+            選択中をクリア
           </button>
           <button
             className="primary-button"
@@ -988,8 +904,6 @@ export default function NyukoApp() {
           </div>
         </section>
       )}
-
-      {result && <WarningList warnings={result.matchResult.warnings} />}
 
       {result && (
         <ExtractedRowsEditPanel
