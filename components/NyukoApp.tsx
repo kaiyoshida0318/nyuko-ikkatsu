@@ -363,13 +363,13 @@ function ExtractedRowsEditPanel({
   const warningRowCount = rows.filter((item) => item.warningLabels.length > 0).length;
 
   return (
-    <section className="warning-fix-panel">
+    <section className="warning-fix-panel warning-fix-panel--table">
       <div className="section-title-row">
         <div>
           <p className="eyebrow">EDIT</p>
           <h2>読み込み商品コード一覧・修正</h2>
           <p>
-            読み込んだ商品コードを全件表示します。商品コード・MMDD・数量を一時的に修正して、再処理できます。警告行は黄色で表示します。
+            読み込んだ商品コードをテーブル形式で全件表示します。警告行は黄色で表示します。
           </p>
         </div>
         <Pill tone={warningRowCount > 0 ? "warn" : "good"}>
@@ -377,126 +377,143 @@ function ExtractedRowsEditPanel({
         </Pill>
       </div>
 
-      <div className="warning-fix-list">
-        {rows.map(({ row, warningLabels }) => {
-          const hasWarning = warningLabels.length > 0;
-          const correction = corrections[row.rowId];
-          const productCode = getCorrectionValue(
-            correction,
-            "productCode",
-            row.productCode,
-          );
-          const mmdd = getCorrectionValue(correction, "mmdd", row.mmdd);
-          const quantity = getCorrectionValue(
-            correction,
-            "quantity",
-            String(row.quantity),
-          );
-          const nextKey = `${mmdd || row.mmdd}-${quantity || row.quantity}`;
-          const changed =
-            productCode !== row.productCode ||
-            mmdd !== row.mmdd ||
-            quantity !== String(row.quantity);
-          const productRecord =
-            productHubIndex.get(productCode.trim().toLowerCase()) ??
-            productHubIndex.get(row.productCodeLc);
-          const productDbKeys = getProductDbKeys(productRecord);
+      <div className="warning-fix-table-wrap" role="region" aria-label="読み込み商品コード編集テーブル">
+        <table className="warning-fix-table">
+          <thead>
+            <tr>
+              <th>状態</th>
+              <th>商品コード</th>
+              <th>現在キー</th>
+              <th>入庫数</th>
+              <th>梱包数</th>
+              <th>元ファイル</th>
+              <th>商品DB側キー</th>
+              <th>修正商品コード</th>
+              <th>MMDD</th>
+              <th>数量</th>
+              <th>修正後キー</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ row, warningLabels }) => {
+              const hasWarning = warningLabels.length > 0;
+              const correction = corrections[row.rowId];
+              const productCode = getCorrectionValue(
+                correction,
+                "productCode",
+                row.productCode,
+              );
+              const mmdd = getCorrectionValue(correction, "mmdd", row.mmdd);
+              const quantity = getCorrectionValue(
+                correction,
+                "quantity",
+                String(row.quantity),
+              );
+              const nextKey = `${mmdd || row.mmdd}-${quantity || row.quantity}`;
+              const changed =
+                productCode !== row.productCode ||
+                mmdd !== row.mmdd ||
+                quantity !== String(row.quantity);
+              const productRecord =
+                productHubIndex.get(productCode.trim().toLowerCase()) ??
+                productHubIndex.get(row.productCodeLc);
+              const productDbKeys = getProductDbKeys(productRecord);
 
-          return (
-            <div
-              className={`warning-fix-item ${hasWarning ? "has-warning" : ""} ${changed ? "is-edited" : ""}`}
-              key={row.rowId}
-            >
-              <div className="warning-fix-meta">
-                <div>
-                  <strong>{row.productCode}</strong>
-                  <span>現在キー: {row.key}</span>
-                  <span>入庫数: {row.receivedQuantity}</span>
-                  <span>
-                    梱包数:{" "}
+              return (
+                <tr
+                  className={`warning-fix-row ${hasWarning ? "has-warning" : ""} ${changed ? "is-edited" : ""}`}
+                  key={row.rowId}
+                >
+                  <td className="warning-status-cell">
+                    <div className={`warning-labels ${hasWarning ? "" : "warning-labels--ok"}`}>
+                      {hasWarning ? (
+                        warningLabels.map((label) => <span key={label}>{label}</span>)
+                      ) : (
+                        <span>OK</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="warning-code-cell">
+                    <strong>{row.productCode}</strong>
+                  </td>
+                  <td>{row.key}</td>
+                  <td>{row.receivedQuantity}</td>
+                  <td>
                     {row.packingQuantities.length
                       ? row.packingQuantities.join(" / ")
                       : "未取得"}
-                  </span>
-                  <span>元ファイル: {row.sourceFile}</span>
-                </div>
-                <div className={`warning-labels ${hasWarning ? "" : "warning-labels--ok"}`}>
-                  {hasWarning ? (
-                    warningLabels.map((label) => <span key={label}>{label}</span>)
-                  ) : (
-                    <span>OK</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="warning-db-keys">
-                <span>商品DB側キー</span>
-                {productDbKeys.length > 0 ? (
-                  <div className="warning-db-key-list">
-                    {productDbKeys.map((item) => (
-                      <span key={`${row.rowId}-${item.label}-${item.value}`}>
-                        <small>{item.label}</small>
-                        <strong>{item.value}</strong>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <strong className="warning-db-key-empty">
-                    {productRecord ? "登録キーなし" : "商品DB未登録"}
-                  </strong>
-                )}
-              </div>
-
-              <div className="warning-fix-inputs">
-                <label>
-                  <span>商品コード</span>
-                  <input
-                    type="text"
-                    value={productCode}
-                    onChange={(event) =>
-                      onChange(row.rowId, { productCode: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>MMDD</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={4}
-                    value={mmdd}
-                    onChange={(event) =>
-                      onChange(row.rowId, { mmdd: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  <span>数量</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={quantity}
-                    onChange={(event) =>
-                      onChange(row.rowId, { quantity: event.target.value })
-                    }
-                  />
-                </label>
-                <div className="warning-next-key">
-                  <span>修正後キー</span>
-                  <strong>{nextKey}</strong>
-                </div>
-                <button
-                  className="secondary-button warning-reset-button"
-                  type="button"
-                  onClick={() => onResetRow(row.rowId)}
-                  disabled={!changed}
-                >
-                  元に戻す
-                </button>
-              </div>
-            </div>
-          );
-        })}
+                  </td>
+                  <td className="warning-source-cell" title={row.sourceFile}>
+                    {row.sourceFile}
+                  </td>
+                  <td className="warning-db-keys-cell">
+                    {productDbKeys.length > 0 ? (
+                      <div className="warning-db-key-list warning-db-key-list--table">
+                        {productDbKeys.map((item) => (
+                          <span key={`${row.rowId}-${item.label}-${item.value}`}>
+                            <small>{item.label}</small>
+                            <strong>{item.value}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <strong className="warning-db-key-empty">
+                        {productRecord ? "登録キーなし" : "商品DB未登録"}
+                      </strong>
+                    )}
+                  </td>
+                  <td className="warning-edit-cell warning-edit-cell--code">
+                    <input
+                      aria-label={`${row.productCode} の修正商品コード`}
+                      type="text"
+                      value={productCode}
+                      onChange={(event) =>
+                        onChange(row.rowId, { productCode: event.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="warning-edit-cell warning-edit-cell--short">
+                    <input
+                      aria-label={`${row.productCode} のMMDD`}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={mmdd}
+                      onChange={(event) =>
+                        onChange(row.rowId, { mmdd: event.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="warning-edit-cell warning-edit-cell--short">
+                    <input
+                      aria-label={`${row.productCode} の数量`}
+                      type="text"
+                      inputMode="numeric"
+                      value={quantity}
+                      onChange={(event) =>
+                        onChange(row.rowId, { quantity: event.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="warning-next-key-cell">
+                    <strong>{nextKey}</strong>
+                  </td>
+                  <td className="warning-action-cell">
+                    <button
+                      className="secondary-button warning-reset-button"
+                      type="button"
+                      onClick={() => onResetRow(row.rowId)}
+                      disabled={!changed}
+                    >
+                      元に戻す
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       <div className="warning-fix-actions">
