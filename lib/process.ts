@@ -10,6 +10,7 @@ import type {
   ExtractedRow,
   MasterRecord,
   OrderRecord,
+  OtherPackingRow,
   ProcessResult,
   ProductHubSettings,
   RowCorrectionMap,
@@ -69,6 +70,13 @@ function applyCorrections(
   });
 }
 
+function applyOtherDeletions(
+  rows: OtherPackingRow[],
+  corrections: RowCorrectionMap,
+): OtherPackingRow[] {
+  return rows.filter((row) => !corrections[row.rowId]?.deleted);
+}
+
 export async function runNyukoProcess(
   files: SelectedFiles,
   productHubSettings: ProductHubSettings,
@@ -78,8 +86,9 @@ export async function runNyukoProcess(
     throw new Error("ラクマート配送依頼書 P~.xlsx を選択してください。");
   }
 
-  const parsedRows = await parsePackingFiles(files.packingFiles);
-  const extracted = applyCorrections(parsedRows, corrections);
+  const parsed = await parsePackingFiles(files.packingFiles);
+  const extracted = applyCorrections(parsed.extracted, corrections);
+  const otherRows = applyOtherDeletions(parsed.otherRows, corrections);
   const productCodes = [...new Set(extracted.map((row) => row.productCode))];
   const productRecords = await fetchProductHubRecords(
     productHubSettings,
@@ -108,6 +117,7 @@ export async function runNyukoProcess(
 
   return {
     extracted,
+    otherRows,
     productHubRecords: productRecords,
     matchResult,
     neRows,

@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 import * as XLSX from 'xlsx'
 import { makeCp932Blob } from './encoding'
-import { KintoneUpdateRow, NeUpdateRow, NyukoListRow, ProcessResult } from './types'
+import { KintoneUpdateRow, NeUpdateRow, NyukoListRow, OtherPackingRow, ProcessResult } from './types'
 
 function csvEscape(value: unknown): string {
   const text = String(value ?? '')
@@ -30,16 +30,40 @@ export function makeKintoneCsvBlob(rows: KintoneUpdateRow[]): Blob {
   return makeCp932Blob(csv)
 }
 
-export function makeNyukoXlsxBlob(rows: NyukoListRow[]): Blob {
+function buildNyukoSheetData(rows: NyukoListRow[], otherRows: OtherPackingRow[]): unknown[][] {
   const headers = ['商品コード', '商品名', '入庫数', '階数', '備考']
-  const data = [headers, ...rows.map((row) => headers.map((header) => row[header as keyof NyukoListRow]))]
+  const data: unknown[][] = [
+    headers,
+    ...rows.map((row) => headers.map((header) => row[header as keyof NyukoListRow])),
+  ]
+
+  if (otherRows.length > 0) {
+    data.push([])
+    data.push(['その他'])
+    data.push(['画像', '梱包数', '備考', '商品情報', '元ファイル'])
+    for (const row of otherRows) {
+      data.push([
+        row.image ? '画像あり' : '',
+        row.packingQuantity ?? '',
+        row.sourceNote,
+        row.productInfo,
+        row.sourceFile,
+      ])
+    }
+  }
+
+  return data
+}
+
+export function makeNyukoXlsxBlob(rows: NyukoListRow[], otherRows: OtherPackingRow[] = []): Blob {
+  const data = buildNyukoSheetData(rows, otherRows)
   const worksheet = XLSX.utils.aoa_to_sheet(data)
   worksheet['!cols'] = [
     { wch: 22 },
     { wch: 35 },
     { wch: 8 },
     { wch: 8 },
-    { wch: 19 },
+    { wch: 45 },
   ]
 
   const workbook = XLSX.utils.book_new()
@@ -48,10 +72,23 @@ export function makeNyukoXlsxBlob(rows: NyukoListRow[]): Blob {
   return new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 }
 
+function dataUrlToBase64(dataUrl: string): string {
+  const commaIndex = dataUrl.indexOf(',')
+  return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl
+}
+
 export async function makeZipBlob(result: ProcessResult): Promise<Blob> {
   const zip = new JSZip()
   zip.file('NE更新.csv', makeNeCsvBlob(result.neRows))
   zip.file('kintone更新.csv', makeKintoneCsvBlob(result.kintoneRows))
-  zip.file('入庫リスト.xlsx', makeNyukoXlsxBlob(result.nyukoRows))
+  zip.file('入庫リスト.xlsx', makeNyukoXlsxBlob(result.nyukoRows, result.otherRows))
+
+  result.otherRows.forEach((row, index) => {
+    if (!row.image) return
+    const extension = row.image.mimeType === 'image/jpeg' ? 'jpg' : row.image.mimeType === 'image/webp' ? 'webp' : 'png'
+    const fileName = `${String(index + 1).padStart(3, '0')}_${row.sourceFile.replace(/[^a-zA-Z0-9._-]/g, '_')}_${row.sourceRowNumber}.${extension}`
+    zip.file(`その他画像/${fileName}`, dataUrlToBase64(row.image.dataUrl), { base64: true })
+  })
+
   return zip.generateAsync({ type: 'blob' })
 }

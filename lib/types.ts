@@ -24,6 +24,27 @@ export type ExtractedRow = {
   sourceFile: string;
 };
 
+export type PackingImage = {
+  dataUrl: string;
+  fileName: string;
+  mimeType: string;
+};
+
+export type OtherPackingRow = {
+  rowId: string;
+  sourceFile: string;
+  sourceRowNumber: number;
+  sourceNote: string;
+  productInfo: string;
+  packingQuantity: number | null;
+  image?: PackingImage;
+};
+
+export type PackingParseResult = {
+  extracted: ExtractedRow[];
+  otherRows: OtherPackingRow[];
+};
+
 export type ProductHubRecord = {
   productCode: string;
   productCodeLc: string;
@@ -116,6 +137,7 @@ export type RowCorrectionMap = Record<string, RowCorrection>;
 
 export type ProcessResult = {
   extracted: ExtractedRow[];
+  otherRows: OtherPackingRow[];
   productHubRecords: ProductHubRecord[];
   matchResult: MatchResult;
   neRows: NeUpdateRow[];
