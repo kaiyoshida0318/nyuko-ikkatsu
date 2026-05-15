@@ -1908,3 +1908,42 @@ tr:last-child td {
     min-width: 1280px;
   }
 }
+
+/* Final layout adjustments: remove bottom gap and prevent page-level horizontal overflow. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.page-shell {
+  padding-bottom: 0;
+}
+
+.table-wrap,
+.warning-fix-table-wrap {
+  max-width: 100%;
+}
+
+.drop-zone,
+.action-panel,
+.download-panel,
+.preview-panel,
+.warning-fix-panel,
+.notice,
+.summary-grid {
+  max-width: 100%;
+}
+
+@supports not (overflow: clip) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-shell {
+    padding-bottom: 0;
+  }
+}
