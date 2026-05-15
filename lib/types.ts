@@ -107,18 +107,18 @@ export type NeUpdateRow = {
   kataban: string;
 };
 
-export type KintoneUpdateRow = {
-  商品番号: string;
-  オーダー1: string;
-  RM1: string;
-  オーダー2: string;
-  RM2: string;
-  オーダー3: string;
-  RM3: string;
-  オーダー4: string;
-  RM4: string;
-  オーダー5: string;
-  RM5: string;
+export type ProductDbUpdateRow = {
+  product_code: string;
+  order_memo_1: string;
+  rakumart_url_1: string;
+  order_memo_2: string;
+  rakumart_url_2: string;
+  order_memo_3: string;
+  rakumart_url_3: string;
+  order_memo_4: string;
+  rakumart_url_4: string;
+  order_memo_5: string;
+  rakumart_url_5: string;
 };
 
 export type NyukoListRow = {
@@ -147,9 +147,24 @@ export type ProcessResult = {
   productHubRecords: ProductHubRecord[];
   matchResult: MatchResult;
   neRows: NeUpdateRow[];
-  kintoneRows: KintoneUpdateRow[];
+  productDbUpdateRows: ProductDbUpdateRow[];
   nyukoRows: NyukoListRow[];
 };
+
+export const ORDER_MEMO_COLS = [
+  "order_memo_1",
+  "order_memo_2",
+  "order_memo_3",
+  "order_memo_4",
+  "order_memo_5",
+] as const;
+export const RAKUMART_URL_COLS = [
+  "rakumart_url_1",
+  "rakumart_url_2",
+  "rakumart_url_3",
+  "rakumart_url_4",
+  "rakumart_url_5",
+] as const;
 
 export const ORDER_COLS = [
   "オーダー1",

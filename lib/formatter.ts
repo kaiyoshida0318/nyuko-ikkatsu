@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 import * as XLSX from 'xlsx'
 import { makeCp932Blob } from './encoding'
-import { KintoneUpdateRow, NeUpdateRow, NyukoListRow, OtherPackingRow, ProcessResult } from './types'
+import { NeUpdateRow, NyukoListRow, OtherPackingRow, ProcessResult } from './types'
 
 function csvEscape(value: unknown): string {
   const text = String(value ?? '')
@@ -21,12 +21,6 @@ function toCsv(headers: string[], rows: Record<string, unknown>[]): string {
 
 export function makeNeCsvBlob(rows: NeUpdateRow[]): Blob {
   const csv = toCsv(['syohin_code', 'zaiko_su', 'kataban'], rows as unknown as Record<string, unknown>[])
-  return makeCp932Blob(csv)
-}
-
-export function makeKintoneCsvBlob(rows: KintoneUpdateRow[]): Blob {
-  const headers = ['商品番号', 'オーダー1', 'RM1', 'オーダー2', 'RM2', 'オーダー3', 'RM3', 'オーダー4', 'RM4', 'オーダー5', 'RM5']
-  const csv = toCsv(headers, rows as unknown as Record<string, unknown>[])
   return makeCp932Blob(csv)
 }
 
@@ -79,7 +73,6 @@ function dataUrlToBase64(dataUrl: string): string {
 export async function makeZipBlob(result: ProcessResult): Promise<Blob> {
   const zip = new JSZip()
   zip.file('NE更新.csv', makeNeCsvBlob(result.neRows))
-  zip.file('kintone更新.csv', makeKintoneCsvBlob(result.kintoneRows))
   zip.file('入庫リスト.xlsx', makeNyukoXlsxBlob(result.nyukoRows, result.otherRows))
 
   result.otherRows.forEach((row, index) => {

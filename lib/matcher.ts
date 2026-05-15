@@ -1,6 +1,6 @@
 import {
   ExtractedRow,
-  KintoneUpdateRow,
+  ProductDbUpdateRow,
   MasterRecord,
   MatchedProduct,
   MatchResult,
@@ -204,31 +204,32 @@ export function buildNeRows(matchResult: MatchResult): NeUpdateRow[] {
   }));
 }
 
-export function buildKintoneRows(matchResult: MatchResult): KintoneUpdateRow[] {
+export function buildProductDbUpdateRows(matchResult: MatchResult): ProductDbUpdateRow[] {
   return matchResult.matched.map((row) => {
-    const values: KintoneUpdateRow = {
-      商品番号: row.productCode,
-      オーダー1: "",
-      RM1: "",
-      オーダー2: "",
-      RM2: "",
-      オーダー3: "",
-      RM3: "",
-      オーダー4: "",
-      RM4: "",
-      オーダー5: "",
-      RM5: "",
+    const values: ProductDbUpdateRow = {
+      product_code: row.productCode,
+      order_memo_1: "",
+      rakumart_url_1: "",
+      order_memo_2: "",
+      rakumart_url_2: "",
+      order_memo_3: "",
+      rakumart_url_3: "",
+      order_memo_4: "",
+      rakumart_url_4: "",
+      order_memo_5: "",
+      rakumart_url_5: "",
     };
 
     for (let i = 0; i < 5; i += 1) {
       const pair = row.remainingPairs[i];
-      values[`オーダー${i + 1}` as keyof KintoneUpdateRow] = pair?.order ?? "";
-      values[`RM${i + 1}` as keyof KintoneUpdateRow] = pair?.rm ?? "";
+      values[`order_memo_${i + 1}` as keyof ProductDbUpdateRow] = pair?.order ?? "";
+      values[`rakumart_url_${i + 1}` as keyof ProductDbUpdateRow] = pair?.rm ?? "";
     }
 
     return values;
   });
 }
+
 
 function floorSortValue(value: string): [number, string] {
   const matched = value.match(/(\d+)/);

@@ -1,4 +1,4 @@
-import type { ProductHubRecord, ProductHubSettings } from './types'
+import type { ProductDbUpdateRow, ProductHubRecord, ProductHubSettings } from './types'
 
 type ProductHubApiRow = {
   product_code?: unknown
@@ -204,3 +204,63 @@ export async function fetchProductHubRecords(settings: ProductHubSettings, produ
 
   return [...deduped.values()]
 }
+
+
+function productDbUpdatePayload(row: ProductDbUpdateRow): Record<string, string | null> {
+  return {
+    order_memo_1: row.order_memo_1 || null,
+    rakumart_url_1: row.rakumart_url_1 || null,
+    order_memo_2: row.order_memo_2 || null,
+    rakumart_url_2: row.rakumart_url_2 || null,
+    order_memo_3: row.order_memo_3 || null,
+    rakumart_url_3: row.rakumart_url_3 || null,
+    order_memo_4: row.order_memo_4 || null,
+    rakumart_url_4: row.rakumart_url_4 || null,
+    order_memo_5: row.order_memo_5 || null,
+    rakumart_url_5: row.rakumart_url_5 || null,
+  }
+}
+
+export async function updateProductHubOrders(
+  settings: ProductHubSettings,
+  rows: ProductDbUpdateRow[],
+): Promise<void> {
+  const apiKey = settings.apiKey.trim()
+
+  if (!settings.apiUrl.trim()) {
+    throw new Error('Supabase URLを入力してください。')
+  }
+  if (!apiKey) {
+    throw new Error('Supabase anon keyを入力してください。')
+  }
+  if (rows.length === 0) return
+
+  const endpoint = normalizeSupabaseUrl(settings.apiUrl)
+
+  for (const row of rows) {
+    const productCode = row.product_code.trim()
+    if (!productCode) continue
+
+    const url = new URL(endpoint)
+    url.searchParams.set('product_code', `eq.${escapePostgrestInValue(productCode)}`)
+
+    const response = await fetch(url.toString(), {
+      method: 'PATCH',
+      headers: {
+        apikey: apiKey,
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(productDbUpdatePayload(row)),
+    })
+
+    const responseText = await response.text()
+    if (!response.ok) {
+      const message = parseErrorMessage(responseText)
+      throw new Error(`${productCode} の商品DB更新に失敗しました（${response.status}）: ${message}`)
+    }
+  }
+}
+

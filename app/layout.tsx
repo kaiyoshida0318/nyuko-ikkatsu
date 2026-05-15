@@ -6,7 +6,7 @@ const basePath = process.env.NODE_ENV === 'production' ? '/nyuko-ikkatsu' : ''
 
 export const metadata: Metadata = {
   title: '入庫一括',
-  description: 'ラクマート到着分の入庫処理を、NE・kintone・倉庫リスト向けに一括処理するWebアプリ。',
+  description: 'ラクマート到着分の入庫処理を、NE・商品DB・倉庫リスト向けに一括処理するWebアプリ。',
   icons: {
     icon: [
       { url: `${basePath}/favicon.ico`, type: 'image/x-icon' },

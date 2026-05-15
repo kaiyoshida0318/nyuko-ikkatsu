@@ -12,12 +12,12 @@ import {
 import { saveAs } from "file-saver";
 import { detectFileRole } from "@/lib/fileRoles";
 import {
-  makeKintoneCsvBlob,
   makeNeCsvBlob,
   makeNyukoXlsxBlob,
   makeZipBlob,
 } from "@/lib/formatter";
 import { runNyukoProcess } from "@/lib/process";
+import { updateProductHubOrders } from "@/lib/productHub";
 import type {
   ExtractedRow,
   MatchWarning,
@@ -30,7 +30,15 @@ import type {
   SelectedFiles,
 } from "@/lib/types";
 
-type PreviewTab = "extracted" | "other" | "ne" | "kintone" | "nyuko";
+type PreviewTab = "extracted" | "other" | "ne" | "productDb" | "nyuko";
+type ReflectStatus = "pending" | "exported" | "updating" | "done" | "error";
+type ReflectStatusMap = { ne: ReflectStatus; productDb: ReflectStatus; nyuko: ReflectStatus };
+
+const initialReflectStatus: ReflectStatusMap = {
+  ne: "pending",
+  productDb: "pending",
+  nyuko: "pending",
+};
 
 const assetBasePath =
   process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "";
@@ -672,7 +680,7 @@ function tabCount(result: ProcessResult | null, tab: PreviewTab) {
   if (tab === "extracted") return result.extracted.length;
   if (tab === "other") return result.otherRows.length;
   if (tab === "ne") return result.neRows.length;
-  if (tab === "kintone") return result.kintoneRows.length;
+  if (tab === "productDb") return result.productDbUpdateRows.length;
   return result.nyukoRows.length;
 }
 
@@ -696,6 +704,14 @@ function restoreWindowPosition(position: { x: number; y: number } | null) {
   });
 }
 
+function reflectStatusLabel(status: ReflectStatus) {
+  if (status === "exported") return "出力済み";
+  if (status === "updating") return "更新中";
+  if (status === "done") return "完了";
+  if (status === "error") return "エラー";
+  return "未処理";
+}
+
 export default function NyukoApp() {
   const [files, setFiles] = useState<SelectedFiles>(emptyFiles);
   const [unknownFiles, setUnknownFiles] = useState<File[]>([]);
@@ -708,6 +724,8 @@ export default function NyukoApp() {
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [corrections, setCorrections] = useState<RowCorrectionMap>({});
   const [activeTab, setActiveTab] = useState<PreviewTab>("extracted");
+  const [reflectStatus, setReflectStatus] = useState<ReflectStatusMap>(initialReflectStatus);
+  const [reflectError, setReflectError] = useState<string | null>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
 
   const productHubReady = Boolean(
@@ -731,7 +749,7 @@ export default function NyukoApp() {
     return {
       extracted: result.extracted.length,
       ne: result.neRows.length,
-      kintone: result.kintoneRows.length,
+      productDb: result.productDbUpdateRows.length,
       nyuko: result.nyukoRows.length,
       other: result.otherRows.length,
       warnings: result.matchResult.warnings.length,
@@ -770,6 +788,8 @@ export default function NyukoApp() {
     setError(null);
     setResult(null);
     setCorrections({});
+    setReflectStatus(initialReflectStatus);
+    setReflectError(null);
     setFiles((current) => mergeFiles(current, incoming));
     const unknown = incoming.filter(
       (file) => detectFileRole(file) === "unknown",
@@ -794,6 +814,8 @@ export default function NyukoApp() {
     setError(null);
     setResult(null);
     setCorrections({});
+    setReflectStatus(initialReflectStatus);
+    setReflectError(null);
     setFiles((current) => ({
       packingFiles: current.packingFiles.filter(
         (_, index) => index !== targetIndex,
@@ -863,6 +885,8 @@ export default function NyukoApp() {
         nextCorrections,
       );
       setResult(processResult);
+      setReflectStatus(initialReflectStatus);
+      setReflectError(null);
       if (!options.keepActiveTab) {
         setActiveTab("extracted");
       }
@@ -895,6 +919,8 @@ export default function NyukoApp() {
     setError(null);
     setResult(null);
     setCorrections({});
+    setReflectStatus(initialReflectStatus);
+    setReflectError(null);
   }
 
   function getEffectiveOtherRows() {
@@ -911,25 +937,43 @@ export default function NyukoApp() {
     });
   }
 
+  function updateReflectStatus(key: keyof ReflectStatusMap, status: ReflectStatus) {
+    setReflectStatus((current) => ({ ...current, [key]: status }));
+  }
+
   function downloadNe() {
     if (!result) return;
     saveAs(makeNeCsvBlob(result.neRows), "NE更新.csv");
-  }
-
-  function downloadKintone() {
-    if (!result) return;
-    saveAs(makeKintoneCsvBlob(result.kintoneRows), "kintone更新.csv");
+    updateReflectStatus("ne", "exported");
   }
 
   function downloadNyuko() {
     if (!result) return;
     saveAs(makeNyukoXlsxBlob(result.nyukoRows, getEffectiveOtherRows()), "入庫リスト.xlsx");
+    updateReflectStatus("nyuko", "exported");
   }
 
   async function downloadZip() {
     if (!result) return;
     const blob = await makeZipBlob({ ...result, otherRows: getEffectiveOtherRows() });
     saveAs(blob, "入庫一括_出力.zip");
+    updateReflectStatus("ne", "exported");
+    updateReflectStatus("nyuko", "exported");
+  }
+
+  async function updateProductDb() {
+    if (!result) return;
+    setReflectError(null);
+    updateReflectStatus("productDb", "updating");
+    try {
+      await updateProductHubOrders(productHubSettings, result.productDbUpdateRows);
+      updateReflectStatus("productDb", "done");
+    } catch (err) {
+      updateReflectStatus("productDb", "error");
+      setReflectError(
+        err instanceof Error ? err.message : "商品DB更新中にエラーが発生しました。",
+      );
+    }
   }
 
   const previewRows: Record<string, unknown>[] = useMemo(() => {
@@ -938,8 +982,8 @@ export default function NyukoApp() {
     if (activeTab === "other") return toOtherPreview(getEffectiveOtherRows());
     if (activeTab === "ne")
       return result.neRows as unknown as Record<string, unknown>[];
-    if (activeTab === "kintone")
-      return result.kintoneRows as unknown as Record<string, unknown>[];
+    if (activeTab === "productDb")
+      return result.productDbUpdateRows as unknown as Record<string, unknown>[];
     return result.nyukoRows as unknown as Record<string, unknown>[];
   }, [activeTab, result, corrections]);
 
@@ -1138,8 +1182,8 @@ export default function NyukoApp() {
             <strong>{summary.ne}</strong>
           </div>
           <div>
-            <span>kintone更新</span>
-            <strong>{summary.kintone}</strong>
+            <span>商品DB更新</span>
+            <strong>{summary.productDb}</strong>
           </div>
           <div>
             <span>入庫リスト</span>
@@ -1169,24 +1213,87 @@ export default function NyukoApp() {
       )}
 
       {result && (
-        <section className="download-panel">
-          <div>
-            <p className="eyebrow">DOWNLOAD</p>
-            <h2>出力ファイル</h2>
-          </div>
-          <div className="download-buttons">
-            <button type="button" onClick={downloadNe}>
-              NE更新.csv
-            </button>
-            <button type="button" onClick={downloadKintone}>
-              kintone更新.csv
-            </button>
-            <button type="button" onClick={downloadNyuko}>
-              入庫リスト.xlsx
-            </button>
+        <section className="reflect-panel">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">REFLECT</p>
+              <h2>入庫反映</h2>
+            </div>
             <button type="button" className="zip-button" onClick={downloadZip}>
-              ZIP一括
+              NE・入庫リストをZIP出力
             </button>
+          </div>
+
+          {reflectError && (
+            <div className="reflect-error" role="alert">
+              {reflectError}
+            </div>
+          )}
+
+          <div className="reflect-grid">
+            <article className="reflect-card">
+              <div className="reflect-card-head">
+                <h3>NE更新</h3>
+                <span className={`reflect-status reflect-status--${reflectStatus.ne}`}>
+                  {reflectStatusLabel(reflectStatus.ne)}
+                </span>
+              </div>
+              <strong>{result.neRows.length}件</strong>
+              <button type="button" onClick={downloadNe}>
+                NE更新.csv 出力
+              </button>
+              <label className="reflect-check">
+                <input
+                  type="checkbox"
+                  checked={reflectStatus.ne === "done"}
+                  onChange={(event) =>
+                    updateReflectStatus("ne", event.target.checked ? "done" : "exported")
+                  }
+                />
+                反映完了
+              </label>
+            </article>
+
+            <article className="reflect-card">
+              <div className="reflect-card-head">
+                <h3>商品DB更新</h3>
+                <span className={`reflect-status reflect-status--${reflectStatus.productDb}`}>
+                  {reflectStatusLabel(reflectStatus.productDb)}
+                </span>
+              </div>
+              <strong>{result.productDbUpdateRows.length}件</strong>
+              <button
+                type="button"
+                onClick={updateProductDb}
+                disabled={reflectStatus.productDb === "updating" || result.productDbUpdateRows.length === 0}
+              >
+                {reflectStatus.productDb === "updating" ? "商品DB更新中…" : "商品DBを更新"}
+              </button>
+              <small>該当する order_memo と rakumart_url を削除・更新します。</small>
+            </article>
+
+            <article className="reflect-card">
+              <div className="reflect-card-head">
+                <h3>入庫リスト出力</h3>
+                <span className={`reflect-status reflect-status--${reflectStatus.nyuko}`}>
+                  {reflectStatusLabel(reflectStatus.nyuko)}
+                </span>
+              </div>
+              <strong>{result.nyukoRows.length + getEffectiveOtherRows().length}行</strong>
+              <button type="button" onClick={downloadNyuko}>
+                入庫リスト.xlsx 出力
+              </button>
+              <label className="reflect-check">
+                <input
+                  type="checkbox"
+                  checked={reflectStatus.nyuko === "done"}
+                  onChange={(event) =>
+                    updateReflectStatus("nyuko", event.target.checked ? "done" : "exported")
+                  }
+                />
+                出力完了
+              </label>
+            </article>
           </div>
         </section>
       )}
@@ -1205,7 +1312,7 @@ export default function NyukoApp() {
                 ["extracted", "抽出結果"],
                 ["other", "その他"],
                 ["ne", "NE更新"],
-                ["kintone", "kintone更新"],
+                ["productDb", "商品DB更新"],
                 ["nyuko", "入庫リスト"],
               ] as const
             ).map(([tab, label]) => (

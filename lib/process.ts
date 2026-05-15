@@ -1,5 +1,5 @@
 import {
-  buildKintoneRows,
+  buildProductDbUpdateRows,
   buildNeRows,
   buildNyukoRows,
   matchAndConsume,
@@ -130,7 +130,7 @@ export async function runNyukoProcess(
 
   const matchResult = matchAndConsume(extracted, orders);
   const neRows = buildNeRows(matchResult);
-  const kintoneRows = buildKintoneRows(matchResult);
+  const productDbUpdateRows = buildProductDbUpdateRows(matchResult);
   const nyukoRows = buildNyukoRows(extracted, masters);
 
   return {
@@ -139,7 +139,7 @@ export async function runNyukoProcess(
     productHubRecords: productRecords,
     matchResult,
     neRows,
-    kintoneRows,
+    productDbUpdateRows,
     nyukoRows,
   };
 }
