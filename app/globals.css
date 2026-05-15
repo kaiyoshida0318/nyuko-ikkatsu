@@ -1686,7 +1686,7 @@ tr:last-child td {
 }
 
 .warning-fix-table {
-  min-width: 1340px;
+  min-width: 1460px;
   font-size: 12px;
 }
 
@@ -1706,6 +1706,45 @@ tr:last-child td {
   background: #eaf1fb;
   font-size: 12px;
   letter-spacing: 0.01em;
+}
+
+.warning-fix-table thead .warning-fix-group-row th {
+  border-bottom: 1px solid rgba(33, 51, 89, 0.12);
+  background: #dfeaf8;
+  color: #1d3557;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.warning-fix-table thead .warning-fix-column-row th {
+  background: #f4f7fc;
+  color: #334155;
+}
+
+.warning-fix-table .warning-group-header {
+  text-align: center;
+  font-weight: 900;
+}
+
+.warning-fix-table .warning-group-header--delivery {
+  border-left: 2px solid rgba(37, 99, 235, 0.22);
+  color: #0f3f9d;
+  background: #eaf3ff;
+}
+
+.warning-fix-table .warning-group-header--manual {
+  border-left: 2px solid rgba(15, 159, 110, 0.24);
+  color: #0f6b4a;
+  background: #edf8f2;
+}
+
+.warning-fix-table .warning-delivery-start {
+  border-left: 2px solid rgba(37, 99, 235, 0.2);
+}
+
+.warning-fix-table .warning-manual-start {
+  border-left: 2px solid rgba(15, 159, 110, 0.22);
 }
 
 .warning-fix-table tbody tr:hover td {
@@ -1839,6 +1878,6 @@ tr:last-child td {
   }
 
   .warning-fix-table {
-    min-width: 1160px;
+    min-width: 1280px;
   }
 }

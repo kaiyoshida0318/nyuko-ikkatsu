@@ -369,7 +369,7 @@ function ExtractedRowsEditPanel({
           <p className="eyebrow">EDIT</p>
           <h2>読み込み商品コード一覧・修正</h2>
           <p>
-            読み込んだ商品コードをテーブル形式で全件表示します。梱包数は配送依頼書の梱包数列です。警告行は黄色で表示します。
+            読み込んだ商品コードをテーブル形式で全件表示します。配送依頼書由来の情報と手動修正欄をグループ分けし、警告行は黄色で表示します。
           </p>
         </div>
         <Pill tone={warningRowCount > 0 ? "warn" : "good"}>
@@ -380,18 +380,26 @@ function ExtractedRowsEditPanel({
       <div className="warning-fix-table-wrap" role="region" aria-label="読み込み商品コード編集テーブル">
         <table className="warning-fix-table">
           <thead>
-            <tr>
-              <th>状態</th>
-              <th>商品コード</th>
-              <th>現在キー</th>
+            <tr className="warning-fix-group-row">
+              <th rowSpan={2}>状態</th>
+              <th rowSpan={2}>商品コード</th>
+              <th rowSpan={2}>商品DBオーダー状況</th>
+              <th className="warning-group-header warning-group-header--delivery" colSpan={3}>
+                配送依頼書
+              </th>
+              <th className="warning-group-header warning-group-header--manual" colSpan={4}>
+                手動修正
+              </th>
+              <th rowSpan={2}>操作</th>
+            </tr>
+            <tr className="warning-fix-column-row">
+              <th className="warning-delivery-start">備考キー</th>
               <th>梱包数</th>
               <th>元ファイル</th>
-              <th>商品DB側キー</th>
-              <th>修正商品コード</th>
+              <th className="warning-manual-start">修正商品コード</th>
               <th>MMDD</th>
               <th>数量</th>
               <th>修正後キー</th>
-              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -436,15 +444,6 @@ function ExtractedRowsEditPanel({
                   <td className="warning-code-cell">
                     <strong>{row.productCode}</strong>
                   </td>
-                  <td>{row.key}</td>
-                  <td>
-                    {row.packingQuantities.length
-                      ? row.packingQuantities.join(" / ")
-                      : "未取得"}
-                  </td>
-                  <td className="warning-source-cell" title={row.sourceFile}>
-                    {row.sourceFile}
-                  </td>
                   <td className="warning-db-keys-cell">
                     {productDbKeys.length > 0 ? (
                       <div className="warning-db-key-list warning-db-key-list--table">
@@ -461,7 +460,16 @@ function ExtractedRowsEditPanel({
                       </strong>
                     )}
                   </td>
-                  <td className="warning-edit-cell warning-edit-cell--code">
+                  <td className="warning-delivery-start">{row.key}</td>
+                  <td>
+                    {row.packingQuantities.length
+                      ? row.packingQuantities.join(" / ")
+                      : "未取得"}
+                  </td>
+                  <td className="warning-source-cell" title={row.sourceFile}>
+                    {row.sourceFile}
+                  </td>
+                  <td className="warning-edit-cell warning-edit-cell--code warning-manual-start">
                     <input
                       aria-label={`${row.productCode} の修正商品コード`}
                       type="text"
