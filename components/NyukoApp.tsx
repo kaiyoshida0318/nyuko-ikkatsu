@@ -104,7 +104,7 @@ function ProductHubSettingsPanel({
         <div>
           <p className="eyebrow">PRODUCT DB</p>
           <h2>商品DB連携</h2>
-          <p>配送依頼書の商品コードだけを product-data-hub から取得します。</p>
+          <p>配送依頼書の商品コードだけを Supabase products から直接取得します。</p>
         </div>
         <span
           className={`status-badge ${isReady ? "status-badge--good" : "status-badge--warn"}`}
@@ -115,28 +115,27 @@ function ProductHubSettingsPanel({
 
       <div className="settings-grid settings-grid--header">
         <label className="setting-field">
-          <span>商品DB API URL</span>
+          <span>Supabase URL</span>
           <input
             type="url"
             value={settings.apiUrl}
             onChange={(event) => updateSetting("apiUrl", event.target.value)}
-            placeholder="https://PROJECT_REF.supabase.co/functions/v1/get-products"
+            placeholder="https://PROJECT_REF.supabase.co"
           />
         </label>
         <label className="setting-field">
-          <span>READ API KEY</span>
+          <span>SUPABASE ANON KEY</span>
           <input
             type="password"
             value={settings.apiKey}
             onChange={(event) => updateSetting("apiKey", event.target.value)}
-            placeholder="PRODUCT_READ_API_KEY"
+            placeholder="SUPABASE_ANON_KEY"
           />
         </label>
       </div>
 
       <p className="settings-note settings-note--compact">
-        API URLとREAD API
-        KEYだけ保存します。商品情報・オーダー状況は処理時にだけ取得します。
+        Supabase URLとanon keyだけ保存します。商品情報・オーダー状況は処理時にだけ取得します。
       </p>
     </div>
   );
