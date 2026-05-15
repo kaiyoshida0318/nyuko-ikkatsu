@@ -254,7 +254,7 @@ function WarningList({ warnings }: { warnings: MatchWarning[] }) {
   );
 }
 
-type CorrectionRow = {
+type EditableExtractedRow = {
   row: ExtractedRow;
   warningLabels: string[];
 };
@@ -265,7 +265,7 @@ function getWarningLabel(type: MatchWarning["type"]) {
   return "数量不一致";
 }
 
-function buildCorrectionRows(result: ProcessResult): CorrectionRow[] {
+function buildEditableRows(result: ProcessResult): EditableExtractedRow[] {
   const rowMap = new Map(result.extracted.map((row) => [row.rowId, row]));
   const labels = new Map<string, Set<string>>();
 
@@ -301,14 +301,14 @@ function buildCorrectionRows(result: ProcessResult): CorrectionRow[] {
     }
   }
 
-  return [...labels.entries()]
-    .map(([rowId, labelSet]) => ({
-      row: rowMap.get(rowId),
-      warningLabels: [...labelSet],
+  return result.extracted
+    .map((row) => ({
+      row,
+      warningLabels: [...(labels.get(row.rowId) ?? new Set<string>())],
     }))
-    .filter((item): item is CorrectionRow => Boolean(item.row))
     .sort(
       (a, b) =>
+        b.warningLabels.length - a.warningLabels.length ||
         a.row.productCodeLc.localeCompare(b.row.productCodeLc) ||
         a.row.key.localeCompare(b.row.key),
     );
@@ -334,7 +334,7 @@ function getProductDbKeys(record: ProductHubRecord | undefined) {
     );
 }
 
-function WarningCorrectionPanel({
+function ExtractedRowsEditPanel({
   result,
   corrections,
   onChange,
@@ -349,7 +349,7 @@ function WarningCorrectionPanel({
   onApply: () => void;
   isProcessing: boolean;
 }) {
-  const rows = useMemo(() => buildCorrectionRows(result), [result]);
+  const rows = useMemo(() => buildEditableRows(result), [result]);
   const productHubIndex = useMemo(() => {
     const map = new Map<string, ProductHubRecord>();
     for (const record of result.productHubRecords) {
@@ -360,21 +360,26 @@ function WarningCorrectionPanel({
 
   if (rows.length === 0) return null;
 
+  const warningRowCount = rows.filter((item) => item.warningLabels.length > 0).length;
+
   return (
     <section className="warning-fix-panel">
       <div className="section-title-row">
         <div>
-          <p className="eyebrow">FIX</p>
-          <h2>警告データを入力で修正</h2>
+          <p className="eyebrow">EDIT</p>
+          <h2>読み込み商品コード一覧・修正</h2>
           <p>
-            配送依頼書から読んだ商品コード・MMDD・数量を一時的に修正して、再処理できます。元のファイルや商品DBは変更しません。
+            読み込んだ商品コードを全件表示します。商品コード・MMDD・数量を一時的に修正して、再処理できます。警告行は黄色で表示します。
           </p>
         </div>
-        <Pill tone="warn">{rows.length}行</Pill>
+        <Pill tone={warningRowCount > 0 ? "warn" : "good"}>
+          全{rows.length}行 / 警告{warningRowCount}行
+        </Pill>
       </div>
 
       <div className="warning-fix-list">
         {rows.map(({ row, warningLabels }) => {
+          const hasWarning = warningLabels.length > 0;
           const correction = corrections[row.rowId];
           const productCode = getCorrectionValue(
             correction,
@@ -399,7 +404,7 @@ function WarningCorrectionPanel({
 
           return (
             <div
-              className={`warning-fix-item ${changed ? "is-edited" : ""}`}
+              className={`warning-fix-item ${hasWarning ? "has-warning" : ""} ${changed ? "is-edited" : ""}`}
               key={row.rowId}
             >
               <div className="warning-fix-meta">
@@ -415,10 +420,12 @@ function WarningCorrectionPanel({
                   </span>
                   <span>元ファイル: {row.sourceFile}</span>
                 </div>
-                <div className="warning-labels">
-                  {warningLabels.map((label) => (
-                    <span key={label}>{label}</span>
-                  ))}
+                <div className={`warning-labels ${hasWarning ? "" : "warning-labels--ok"}`}>
+                  {hasWarning ? (
+                    warningLabels.map((label) => <span key={label}>{label}</span>)
+                  ) : (
+                    <span>OK</span>
+                  )}
                 </div>
               </div>
 
@@ -962,8 +969,8 @@ export default function NyukoApp() {
 
       {result && <WarningList warnings={result.matchResult.warnings} />}
 
-      {result && result.matchResult.warnings.length > 0 && (
-        <WarningCorrectionPanel
+      {result && (
+        <ExtractedRowsEditPanel
           result={result}
           corrections={corrections}
           onChange={updateCorrection}
