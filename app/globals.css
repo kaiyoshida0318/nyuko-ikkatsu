@@ -501,6 +501,15 @@ button:disabled {
   color: #055f43;
 }
 
+.action-file-list {
+  max-width: 760px;
+  margin-top: 16px;
+}
+
+.action-file-list li {
+  background: rgba(255, 255, 255, 0.88);
+}
+
 .action-buttons,
 .download-buttons {
   display: flex;
@@ -1302,30 +1311,6 @@ tr:last-child td {
   margin-top: 14px !important;
 }
 
-.selected-files-panel {
-  margin-top: 18px;
-  padding: 22px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
-  background: var(--panel);
-  box-shadow: 0 14px 36px rgba(33, 51, 89, 0.08);
-  backdrop-filter: blur(12px);
-}
-
-.selected-files-panel h2 {
-  margin: 0;
-  font-size: 22px;
-  letter-spacing: -0.03em;
-}
-
-.file-list--selected {
-  margin-top: 16px;
-}
-
-.file-list--selected li {
-  background: rgba(255, 255, 255, 0.85);
-}
-
 @media (max-width: 1080px) {
   .settings-grid--header {
     grid-template-columns: 1fr;
@@ -1362,11 +1347,6 @@ tr:last-child td {
 
   .product-hub-settings-head {
     display: grid;
-  }
-
-  .selected-files-panel {
-    padding: 18px;
-    border-radius: 22px;
   }
 
   .action-panel {

@@ -771,36 +771,6 @@ export default function NyukoApp() {
         </div>
       </section>
 
-      {files.packingFiles.length > 0 && (
-        <section className="selected-files-panel">
-          <div className="section-title-row">
-            <div>
-              <p className="eyebrow">SELECTED</p>
-              <h2>選択中の配送依頼書</h2>
-            </div>
-            <Pill tone="good">{files.packingFiles.length}ファイル</Pill>
-          </div>
-          <ul className="file-list file-list--selected">
-            {files.packingFiles.map((file, index) => (
-              <li key={`${file.name}-${file.size}-${index}`}>
-                <div className="file-row-main">
-                  <span>{file.name}</span>
-                  <small>{formatFileSize(file)}</small>
-                </div>
-                <button
-                  className="file-remove-button"
-                  type="button"
-                  onClick={() => removePackingFile(index)}
-                  aria-label={`${file.name}を削除`}
-                >
-                  削除
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {unknownFiles.length > 0 && (
         <section className="notice notice--warn">
           <strong>未判定ファイルがあります</strong>
@@ -835,13 +805,34 @@ export default function NyukoApp() {
               : "配送依頼書と商品DB連携が揃うと処理できます。商品情報・オーダー状況は処理時に商品DBから取得します。"}
           </p>
           <div className="action-selection-status" aria-live="polite">
-            <span>選択中</span>
+            <span>対象ファイル</span>
             <strong>
               {selectedFileCount > 0
                 ? `${selectedFileCount}ファイル`
                 : "ファイル未選択"}
             </strong>
           </div>
+
+          {files.packingFiles.length > 0 && (
+            <ul className="file-list action-file-list" aria-label="処理対象ファイル">
+              {files.packingFiles.map((file, index) => (
+                <li key={`${file.name}-${file.size}-${index}`}>
+                  <div className="file-row-main">
+                    <span>{file.name}</span>
+                    <small>{formatFileSize(file)}</small>
+                  </div>
+                  <button
+                    className="file-remove-button"
+                    type="button"
+                    onClick={() => removePackingFile(index)}
+                    aria-label={`${file.name}を削除`}
+                  >
+                    削除
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div className="action-buttons">
           <button
