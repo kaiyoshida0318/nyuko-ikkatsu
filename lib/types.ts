@@ -109,6 +109,7 @@ export type RowCorrection = {
   productCode?: string;
   mmdd?: string;
   quantity?: string;
+  deleted?: boolean;
 };
 
 export type RowCorrectionMap = Record<string, RowCorrection>;

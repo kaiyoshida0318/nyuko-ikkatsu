@@ -36,9 +36,10 @@ function applyCorrections(
   extracted: ExtractedRow[],
   corrections: RowCorrectionMap,
 ): ExtractedRow[] {
-  return extracted.map((row) => {
+  return extracted.flatMap((row) => {
     const correction = corrections[row.rowId];
-    if (!correction) return row;
+    if (!correction) return [row];
+    if (correction.deleted) return [];
 
     const productCode = normalizeProductCode(
       correction.productCode ?? "",
@@ -55,7 +56,7 @@ function applyCorrections(
       row.packingQuantities.length > 0 &&
       !row.packingQuantities.includes(quantity);
 
-    return {
+    return [{
       ...row,
       productCode,
       productCodeLc: productCode.toLowerCase(),
@@ -64,7 +65,7 @@ function applyCorrections(
       receivedQuantity,
       key,
       quantityMismatch,
-    };
+    }];
   });
 }
 

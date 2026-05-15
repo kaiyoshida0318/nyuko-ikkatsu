@@ -1713,7 +1713,7 @@ tr:last-child td {
 }
 
 .warning-fix-table {
-  min-width: 1460px;
+  min-width: 1520px;
   font-size: 12px;
 }
 
@@ -1877,14 +1877,33 @@ tr:last-child td {
 }
 
 .warning-action-cell {
-  width: 96px;
+  width: 156px;
 }
 
-.warning-action-cell .warning-reset-button {
+.warning-action-buttons {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.warning-action-cell .warning-reset-button,
+.warning-action-cell .warning-delete-button {
   min-height: 34px;
   padding: 0 10px;
   border-radius: 10px;
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.warning-action-cell .warning-delete-button {
+  border-color: rgba(220, 38, 38, 0.18);
+  color: #b42318;
+  background: #fff7f5;
+}
+
+.warning-action-cell .warning-delete-button:hover:not(:disabled) {
+  border-color: rgba(220, 38, 38, 0.32);
+  background: #fff1ee;
 }
 
 .warning-fix-table .warning-labels {

@@ -217,7 +217,7 @@ function buildEditableRows(result: ProcessResult): EditableExtractedRow[] {
 
 function getCorrectionValue(
   correction: RowCorrection | undefined,
-  key: keyof RowCorrection,
+  key: Exclude<keyof RowCorrection, "deleted">,
   fallback: string,
 ) {
   const value = correction?.[key];
@@ -240,6 +240,7 @@ function ExtractedRowsEditPanel({
   corrections,
   onChange,
   onResetRow,
+  onDeleteRow,
   onApply,
   isProcessing,
 }: {
@@ -247,6 +248,7 @@ function ExtractedRowsEditPanel({
   corrections: RowCorrectionMap;
   onChange: (rowId: string, patch: RowCorrection) => void;
   onResetRow: (rowId: string) => void;
+  onDeleteRow: (rowId: string) => void;
   onApply: () => void;
   isProcessing: boolean;
 }) {
@@ -268,9 +270,9 @@ function ExtractedRowsEditPanel({
       <div className="section-title-row">
         <div>
           <p className="eyebrow">EDIT</p>
-          <h2>読み込み商品コード一覧・修正</h2>
+          <h2>商品一覧/修正</h2>
           <p>
-            読み込んだ商品コードをテーブル形式で全件表示します。配送依頼書由来の情報と手動修正欄をグループ分けし、警告行は黄色で表示します。
+            処理対象の商品をテーブル形式で表示します。配送依頼書由来の情報と手動修正欄をグループ分けし、警告行は黄色で表示します。
           </p>
         </div>
         <Pill tone={warningRowCount > 0 ? "warn" : "good"}>
@@ -278,7 +280,7 @@ function ExtractedRowsEditPanel({
         </Pill>
       </div>
 
-      <div className="warning-fix-table-wrap" role="region" aria-label="読み込み商品コード編集テーブル">
+      <div className="warning-fix-table-wrap" role="region" aria-label="商品一覧修正テーブル">
         <table className="warning-fix-table">
           <thead>
             <tr className="warning-fix-group-row">
@@ -407,14 +409,24 @@ function ExtractedRowsEditPanel({
                     <strong>{nextKey}</strong>
                   </td>
                   <td className="warning-action-cell">
-                    <button
-                      className="secondary-button warning-reset-button"
-                      type="button"
-                      onClick={() => onResetRow(row.rowId)}
-                      disabled={!changed}
-                    >
-                      元に戻す
-                    </button>
+                    <div className="warning-action-buttons">
+                      <button
+                        className="secondary-button warning-reset-button"
+                        type="button"
+                        onClick={() => onResetRow(row.rowId)}
+                        disabled={!changed || isProcessing}
+                      >
+                        元に戻す
+                      </button>
+                      <button
+                        className="secondary-button warning-delete-button"
+                        type="button"
+                        onClick={() => onDeleteRow(row.rowId)}
+                        disabled={isProcessing}
+                      >
+                        削除
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -622,7 +634,19 @@ export default function NyukoApp() {
     });
   }
 
-  async function handleRun() {
+  async function deleteRow(rowId: string) {
+    const nextCorrections: RowCorrectionMap = {
+      ...corrections,
+      [rowId]: {
+        ...(corrections[rowId] ?? {}),
+        deleted: true,
+      },
+    };
+    setCorrections(nextCorrections);
+    await runWithCorrections(nextCorrections);
+  }
+
+  async function runWithCorrections(nextCorrections: RowCorrectionMap) {
     setIsProcessing(true);
     setError(null);
     setResult(null);
@@ -630,7 +654,7 @@ export default function NyukoApp() {
       const processResult = await runNyukoProcess(
         files,
         productHubSettings,
-        corrections,
+        nextCorrections,
       );
       setResult(processResult);
       setActiveTab("extracted");
@@ -641,6 +665,10 @@ export default function NyukoApp() {
     } finally {
       setIsProcessing(false);
     }
+  }
+
+  async function handleRun() {
+    await runWithCorrections(corrections);
   }
 
   function clearAll() {
@@ -897,6 +925,7 @@ export default function NyukoApp() {
           corrections={corrections}
           onChange={updateCorrection}
           onResetRow={resetCorrection}
+          onDeleteRow={deleteRow}
           onApply={handleRun}
           isProcessing={isProcessing}
         />
