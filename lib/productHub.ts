@@ -81,6 +81,10 @@ function escapePostgrestInValue(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
+function escapePostgrestEqValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/,/g, '\\,')
+}
+
 function toRecord(row: ProductHubApiRow): ProductHubRecord | null {
   const productCode = normalizeCell(row.product_code) ?? ''
   if (!productCode) return null
@@ -242,7 +246,8 @@ export async function updateProductHubOrders(
     if (!productCode) continue
 
     const url = new URL(endpoint)
-    url.searchParams.set('product_code', `eq.${escapePostgrestInValue(productCode)}`)
+    url.searchParams.set('product_code', `eq.${escapePostgrestEqValue(productCode)}`)
+    url.searchParams.set('select', 'product_code')
 
     const response = await fetch(url.toString(), {
       method: 'PATCH',
@@ -251,7 +256,7 @@ export async function updateProductHubOrders(
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
+        Prefer: 'return=representation',
       },
       body: JSON.stringify(productDbUpdatePayload(row)),
     })
@@ -260,6 +265,19 @@ export async function updateProductHubOrders(
     if (!response.ok) {
       const message = parseErrorMessage(responseText)
       throw new Error(`${productCode} の商品DB更新に失敗しました（${response.status}）: ${message}`)
+    }
+
+    let updatedRows: unknown
+    try {
+      updatedRows = responseText ? JSON.parse(responseText) : []
+    } catch {
+      throw new Error(`${productCode} の商品DB更新結果をJSONとして読み取れませんでした。`)
+    }
+
+    if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+      throw new Error(
+        `${productCode} の商品DB更新対象が0件でした。商品コードの一致条件、またはSupabaseのRLS UPDATE/SELECTポリシーを確認してください。`,
+      )
     }
   }
 }
