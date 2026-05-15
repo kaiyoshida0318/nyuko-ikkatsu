@@ -798,12 +798,7 @@ export default function NyukoApp() {
       <section className={`action-panel ${selectedFileCount > 0 ? "action-panel--has-selection" : ""}`}>
         <div className="action-panel-main">
           <p className="eyebrow">RUN</p>
-          <h2>{selectedFileCount > 0 ? "選択中の配送依頼書を処理" : "入庫処理を実行"}</h2>
-          <p>
-            {selectedFileCount > 0
-              ? "選択中の配送依頼書を商品DBと照合して、NE更新・kintone更新・入庫リストを作成します。"
-              : "配送依頼書と商品DB連携が揃うと処理できます。商品情報・オーダー状況は処理時に商品DBから取得します。"}
-          </p>
+          <h2>処理実行</h2>
           <div className="action-selection-status" aria-live="polite">
             <span>対象ファイル</span>
             <strong>
