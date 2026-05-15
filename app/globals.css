@@ -1686,7 +1686,7 @@ tr:last-child td {
 }
 
 .warning-fix-table {
-  min-width: 1420px;
+  min-width: 1340px;
   font-size: 12px;
 }
 
@@ -1839,6 +1839,6 @@ tr:last-child td {
   }
 
   .warning-fix-table {
-    min-width: 1240px;
+    min-width: 1160px;
   }
 }

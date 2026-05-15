@@ -369,7 +369,7 @@ function ExtractedRowsEditPanel({
           <p className="eyebrow">EDIT</p>
           <h2>読み込み商品コード一覧・修正</h2>
           <p>
-            読み込んだ商品コードをテーブル形式で全件表示します。警告行は黄色で表示します。
+            読み込んだ商品コードをテーブル形式で全件表示します。梱包数は配送依頼書の梱包数列です。警告行は黄色で表示します。
           </p>
         </div>
         <Pill tone={warningRowCount > 0 ? "warn" : "good"}>
@@ -384,7 +384,6 @@ function ExtractedRowsEditPanel({
               <th>状態</th>
               <th>商品コード</th>
               <th>現在キー</th>
-              <th>入庫数</th>
               <th>梱包数</th>
               <th>元ファイル</th>
               <th>商品DB側キー</th>
@@ -438,7 +437,6 @@ function ExtractedRowsEditPanel({
                     <strong>{row.productCode}</strong>
                   </td>
                   <td>{row.key}</td>
-                  <td>{row.receivedQuantity}</td>
                   <td>
                     {row.packingQuantities.length
                       ? row.packingQuantities.join(" / ")
@@ -569,7 +567,6 @@ function toExtractedPreview(rows: ExtractedRow[]) {
     商品コード: row.productCode,
     MMDD: row.mmdd,
     読み取り数量: row.quantity,
-    入庫数: row.receivedQuantity,
     消し込みキー: row.key,
     梱包数: row.packingQuantities.length
       ? row.packingQuantities.join(" / ")
