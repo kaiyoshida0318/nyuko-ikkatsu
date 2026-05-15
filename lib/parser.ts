@@ -173,6 +173,7 @@ export async function parsePackingFiles(
         mmdd: row.mmdd,
         quantity: row.quantity,
         key: row.key,
+        sourceKey: row.key,
         packingQuantities,
         receivedQuantity:
           quantityMismatch && packingQuantities.length === 1

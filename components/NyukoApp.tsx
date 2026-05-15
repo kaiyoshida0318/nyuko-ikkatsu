@@ -393,12 +393,12 @@ function ExtractedRowsEditPanel({
               <th rowSpan={2}>操作</th>
             </tr>
             <tr className="warning-fix-column-row">
-              <th className="warning-delivery-start">備考キー</th>
+              <th className="warning-delivery-start">備考</th>
               <th>梱包数</th>
               <th>元ファイル</th>
-              <th className="warning-manual-start">修正商品コード</th>
-              <th>MMDD</th>
-              <th>数量</th>
+              <th className="warning-manual-start">商品コード</th>
+              <th>オーダー日</th>
+              <th>オーダー数</th>
               <th>修正後キー</th>
             </tr>
           </thead>
@@ -460,7 +460,7 @@ function ExtractedRowsEditPanel({
                       </strong>
                     )}
                   </td>
-                  <td className="warning-delivery-start">{row.key}</td>
+                  <td className="warning-delivery-start">{row.sourceKey}</td>
                   <td>
                     {row.packingQuantities.length
                       ? row.packingQuantities.join(" / ")
@@ -481,7 +481,7 @@ function ExtractedRowsEditPanel({
                   </td>
                   <td className="warning-edit-cell warning-edit-cell--short">
                     <input
-                      aria-label={`${row.productCode} のMMDD`}
+                      aria-label={`${row.productCode} のオーダー日`}
                       type="text"
                       inputMode="numeric"
                       maxLength={4}
@@ -493,7 +493,7 @@ function ExtractedRowsEditPanel({
                   </td>
                   <td className="warning-edit-cell warning-edit-cell--short">
                     <input
-                      aria-label={`${row.productCode} の数量`}
+                      aria-label={`${row.productCode} のオーダー数`}
                       type="text"
                       inputMode="numeric"
                       value={quantity}

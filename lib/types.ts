@@ -17,6 +17,7 @@ export type ExtractedRow = {
   quantity: number;
   receivedQuantity: number;
   key: string;
+  sourceKey: string;
   packingQuantities: number[];
   quantityMismatch: boolean;
   sourceNote: string;
