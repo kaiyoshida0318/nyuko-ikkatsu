@@ -378,10 +378,10 @@ export async function parsePackingFiles(
         key: row.key,
         sourceKey: row.key,
         packingQuantities,
-        receivedQuantity:
-          quantityMismatch && packingQuantities.length === 1
-            ? packingQuantities[0]
-            : row.quantity,
+        // 入庫数・NE zaiko_su・オーダー消し込みは、梱包数ではなく
+        // 箱詰め備考の「mmdd-数量」を正として扱う。
+        // 梱包数は数量不一致の警告表示用にだけ保持する。
+        receivedQuantity: row.quantity,
         quantityMismatch,
         sourceNote: row.sourceNote,
         sourceFile: row.sourceFile,

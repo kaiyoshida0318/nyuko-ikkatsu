@@ -45,9 +45,9 @@ function replaceLeadingOrderQuantity(
 }
 
 function getReceivedQuantity(row: ExtractedRow): number {
-  return Number.isFinite(row.receivedQuantity) && row.receivedQuantity > 0
-    ? row.receivedQuantity
-    : row.quantity;
+  // セット商品などでは梱包数が実物数、備考数量がNE在庫単位になるため、
+  // 出力数量は常に配送依頼書備考の「mmdd-数量」を使う。
+  return row.quantity;
 }
 
 function groupExtracted(rows: ExtractedRow[]): Map<string, ExtractedRow[]> {
@@ -96,7 +96,7 @@ export function matchAndConsume(
           expectedQuantity: incoming.quantity,
           packingQuantities: incoming.packingQuantities,
           sourceFile: incoming.sourceFile,
-          message: `${productCode}: ${incoming.key} の読み取り数量と梱包数が一致しません。`,
+          message: `${productCode}: ${incoming.key} の読み取り数量と梱包数が一致しません。NE更新・入庫リストは備考数量を使用します。`,
         });
       }
     }
