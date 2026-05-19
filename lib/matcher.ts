@@ -197,11 +197,17 @@ export function matchAndConsume(
 }
 
 export function buildNeRows(matchResult: MatchResult): NeUpdateRow[] {
-  return matchResult.matched.map((row) => ({
-    syohin_code: row.productCode,
-    zaiko_su: row.incomingQuantity,
-    kataban: row.remainingPairs.map((pair) => pair.order).join("/"),
-  }));
+  return matchResult.matched.map((row) => {
+    const remainingKataban = row.remainingPairs.map((pair) => pair.order).join("/");
+
+    return {
+      syohin_code: row.productCode,
+      zaiko_su: row.incomingQuantity,
+      // NEではkataban空欄のCSV更新が「変更なし」扱いになるため、
+      // 発注状況が残らないよう、消し込み後に空欄なら明示的に0を入れる。
+      kataban: remainingKataban || "0",
+    };
+  });
 }
 
 export function buildProductDbUpdateRows(matchResult: MatchResult): ProductDbUpdateRow[] {
