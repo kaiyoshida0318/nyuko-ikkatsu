@@ -24,6 +24,7 @@ import {
   embeddedSupabaseAnonKey,
   embeddedSupabaseUrl,
   getSupabaseConfigError,
+  NYUKO_AUTH_STORAGE_KEY,
   supabase,
 } from "@/lib/supabaseClient";
 import type {
@@ -73,20 +74,14 @@ function buildProductHubSettings(accessToken = ""): ProductHubSettings {
 }
 
 
-function clearSupabaseAuthStorage() {
+function clearNyukoSupabaseAuthStorage() {
   if (typeof window === "undefined") return;
 
-  const shouldRemoveKey = (key: string) =>
-    key.includes("supabase.auth.token") ||
-    (key.startsWith("sb-") && key.endsWith("-auth-token"));
-
+  // 商品DBと同じSupabaseプロジェクトを使っていても、
+  // 入庫一括専用のstorageKeyだけを消す。
+  // sb-xxxxx-auth-token などの共通キーは商品DB側のログインに使われる可能性があるため触らない。
   for (const storage of [window.localStorage, window.sessionStorage]) {
-    const keysToRemove: string[] = [];
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (key && shouldRemoveKey(key)) keysToRemove.push(key);
-    }
-    for (const key of keysToRemove) storage.removeItem(key);
+    storage.removeItem(NYUKO_AUTH_STORAGE_KEY);
   }
 }
 
@@ -215,8 +210,11 @@ function LoginPanel() {
       });
       if (error) throw error;
     } catch (err) {
+      const message = err instanceof Error ? err.message : "ログインに失敗しました。";
       setLoginError(
-        err instanceof Error ? err.message : "ログインに失敗しました。",
+        message === "Failed to fetch"
+          ? "Supabaseに接続できませんでした。NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY の設定、またはネットワーク接続を確認してください。"
+          : message,
       );
     } finally {
       setIsSubmitting(false);
@@ -900,8 +898,7 @@ export default function NyukoApp() {
     setIsProductHubPanelOpen(false);
 
     // signOutの完了イベントを待たずに画面状態を先にログアウトへ倒す。
-    // GitHub Pages上でSupabaseの保存済みセッションが残った場合でも、
-    // localStorage/sessionStorageを明示的に消して次回表示時に再ログインさせる。
+    // 入庫一括専用の保存キーだけを消し、商品DB側のログイン状態は消さない。
     setAuthEmail("");
     setProductHubSettings(buildProductHubSettings(""));
 
@@ -914,7 +911,7 @@ export default function NyukoApp() {
     } catch (signOutError) {
       console.warn("Supabase signOut failed:", signOutError);
     } finally {
-      clearSupabaseAuthStorage();
+      clearNyukoSupabaseAuthStorage();
       setAuthLoading(false);
     }
   }

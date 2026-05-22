@@ -75,3 +75,10 @@ npm run build
 ```
 
 `out/` に静的ファイルが出力されます。
+
+## Supabase Auth のログイン分離
+
+入庫一括は商品DBと同じ Supabase Auth を使いますが、ブラウザ内の保存キーは入庫一括専用にしています。
+そのため、商品DBでログインしていても入庫一括へ自動ログインされません。
+
+Supabase URL は `https://xxxxx.supabase.co` の形式を推奨します。誤って `/rest/v1` や `/rest/v1/products` まで入っていても、ログイン処理ではプロジェクトURL部分だけを使います。
