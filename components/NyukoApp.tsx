@@ -14,10 +14,10 @@ import {
 import { saveAs } from "file-saver";
 import { detectFileRole } from "@/lib/fileRoles";
 import {
-  makeNeCsvBlob,
   makeNyukoXlsxBlob,
   makeZipBlob,
 } from "@/lib/formatter";
+import { updateNextEngineByApi } from "@/lib/neSyncWorker";
 import { runNyukoProcess } from "@/lib/process";
 import { updateProductHubOrders } from "@/lib/productHub";
 import {
@@ -67,8 +67,6 @@ function buildInitialReflectStatus(result: ProcessResult): ReflectStatusMap {
 
 const assetBasePath =
   process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "";
-const NEXT_ENGINE_PRODUCT_UPLOAD_URL = "https://main.next-engine.com/User_Syohin_Upload";
-
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
 };
@@ -1334,14 +1332,6 @@ export default function NyukoApp() {
     setReflectStatus((current) => ({ ...current, [key]: status }));
   }
 
-  function setNeDone(isDone: boolean) {
-    setReflectStatus((current) => ({
-      ...current,
-      ne: isDone ? "done" : "exported",
-      nyuko: isDone ? current.nyuko : "pending",
-    }));
-  }
-
   function setNyukoDone(isDone: boolean) {
     setReflectStatus((current) => ({
       ...current,
@@ -1349,10 +1339,24 @@ export default function NyukoApp() {
     }));
   }
 
-  function downloadNe() {
-    if (!result || reflectStatus.productDb !== "done") return;
-    saveAs(makeNeCsvBlob(result.neRows), "NE更新.csv");
-    updateReflectStatus("ne", "exported");
+  async function updateNeByApi() {
+    if (!result || reflectStatus.productDb !== "done" || reflectStatus.ne === "done" || reflectStatus.ne === "updating") return;
+    if (result.neRows.length === 0) {
+      updateReflectStatus("ne", "done");
+      return;
+    }
+
+    setReflectError(null);
+    updateReflectStatus("ne", "updating");
+    try {
+      await updateNextEngineByApi(productHubSettings.accessToken, result.neRows);
+      updateReflectStatus("ne", "done");
+    } catch (err) {
+      updateReflectStatus("ne", "error");
+      setReflectError(
+        err instanceof Error ? err.message : "NE API更新中にエラーが発生しました。",
+      );
+    }
   }
 
   function downloadNyuko() {
@@ -1406,9 +1410,12 @@ export default function NyukoApp() {
     reflectStatus.productDb !== "updating" &&
     reflectStatus.productDb !== "done";
   const canOperateNe = Boolean(result) && isProductDbComplete;
-  const canCompleteNe =
-    canOperateNe && (reflectStatus.ne === "exported" || reflectStatus.ne === "done");
-  const canOperateNyuko = Boolean(result) && isNeComplete;
+  const canUpdateNe =
+    canOperateNe &&
+    (result?.neRows.length ?? 0) > 0 &&
+    reflectStatus.ne !== "updating" &&
+    reflectStatus.ne !== "done";
+  const canOperateNyuko = Boolean(result) && isProductDbComplete && isNeComplete;
   const canCompleteNyuko =
     canOperateNyuko && (reflectStatus.nyuko === "exported" || reflectStatus.nyuko === "done");
 
@@ -1707,30 +1714,16 @@ export default function NyukoApp() {
                 </span>
               </div>
               <strong>{result.neRows.length}件</strong>
-              <button type="button" onClick={downloadNe} disabled={!canOperateNe}>
-                NE更新.csv 出力
+              <button type="button" onClick={updateNeByApi} disabled={!canUpdateNe}>
+                {reflectStatus.ne === "updating"
+                  ? "NE更新中…"
+                  : reflectStatus.ne === "done"
+                    ? "更新完了"
+                    : result.neRows.length === 0
+                      ? "更新対象なし"
+                      : "NEへAPI更新"}
               </button>
-              <a
-                className={`reflect-link-button ${canOperateNe ? "" : "is-disabled"}`}
-                href={canOperateNe ? NEXT_ENGINE_PRODUCT_UPLOAD_URL : undefined}
-                target="_blank"
-                rel="noreferrer"
-                aria-disabled={!canOperateNe}
-                onClick={(event) => {
-                  if (!canOperateNe) event.preventDefault();
-                }}
-              >
-                NE更新画面を開く
-              </a>
-              <label className={`reflect-check ${canCompleteNe ? "" : "is-disabled"}`}>
-                <input
-                  type="checkbox"
-                  checked={reflectStatus.ne === "done"}
-                  disabled={!canCompleteNe}
-                  onChange={(event) => setNeDone(event.target.checked)}
-                />
-                反映完了
-              </label>
+              <small>NE商品マスタアップロードAPIへ直接送信します。CSV出力とNE画面での手動アップロードは不要です。</small>
               {!canOperateNe && <small>商品DB更新が完了すると操作できます。</small>}
             </article>
 
