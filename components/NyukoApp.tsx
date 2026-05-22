@@ -42,6 +42,14 @@ import type {
 type PreviewTab = "extracted" | "other" | "ne" | "productDb" | "nyuko";
 type ReflectStatus = "pending" | "exported" | "updating" | "done" | "error";
 type ReflectStatusMap = { ne: ReflectStatus; productDb: ReflectStatus; nyuko: ReflectStatus };
+type UiTheme = "light" | "dark";
+
+const UI_THEME_STORAGE_KEY = "nyuko-ikkatsu-ui-theme";
+
+function getInitialUiTheme(): UiTheme {
+  if (typeof window === "undefined") return "light";
+  return window.localStorage.getItem(UI_THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+}
 
 const initialReflectStatus: ReflectStatusMap = {
   ne: "pending",
@@ -275,6 +283,74 @@ function ConfigErrorPanel({ message }: { message: string }) {
   );
 }
 
+
+function SettingsPanel({
+  theme,
+  onChangeTheme,
+}: {
+  theme: UiTheme;
+  onChangeTheme: (theme: UiTheme) => void;
+}) {
+  return (
+    <div className="settings-menu" role="dialog" aria-label="設定">
+      <div className="settings-menu-head">
+        <div>
+          <p className="eyebrow">SETTINGS</p>
+          <h2>設定</h2>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-copy">
+          <strong>表示モード</strong>
+          <span>作業場所の明るさに合わせて切り替えできます。</span>
+        </div>
+        <div className="theme-segment" role="group" aria-label="表示モード">
+          <button
+            className={theme === "light" ? "is-active" : ""}
+            type="button"
+            onClick={() => onChangeTheme("light")}
+            aria-pressed={theme === "light"}
+          >
+            ライト
+          </button>
+          <button
+            className={theme === "dark" ? "is-active" : ""}
+            type="button"
+            onClick={() => onChangeTheme("dark")}
+            aria-pressed={theme === "dark"}
+          >
+            ダーク
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="settings-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M19.1 13.2c.08-.4.12-.8.12-1.2s-.04-.8-.12-1.2l2.03-1.58-1.92-3.32-2.4.96a7.85 7.85 0 0 0-2.08-1.2L14.4 3h-3.84l-.36 2.66c-.74.28-1.43.68-2.04 1.2l-2.38-.96-1.92 3.32 2.02 1.58A6.44 6.44 0 0 0 5.76 12c0 .4.04.8.12 1.2l-2.02 1.58 1.92 3.32 2.38-.96c.61.52 1.3.92 2.04 1.2l.36 2.66h3.84l.33-2.66a7.85 7.85 0 0 0 2.08-1.2l2.4.96 1.92-3.32-2.03-1.58Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function Pill({
   children,
@@ -942,6 +1018,8 @@ export default function NyukoApp() {
   const [authEmail, setAuthEmail] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isProductHubPanelOpen, setIsProductHubPanelOpen] = useState(false);
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  const [uiTheme, setUiTheme] = useState<UiTheme>(getInitialUiTheme);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ProcessResult | null>(null);
@@ -951,6 +1029,12 @@ export default function NyukoApp() {
   const [reflectStatus, setReflectStatus] = useState<ReflectStatusMap>(initialReflectStatus);
   const [reflectError, setReflectError] = useState<string | null>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    document.documentElement.dataset.theme = uiTheme;
+    window.localStorage.setItem(UI_THEME_STORAGE_KEY, uiTheme);
+  }, [uiTheme]);
 
   useEffect(() => {
     let isMounted = true;
@@ -993,6 +1077,7 @@ export default function NyukoApp() {
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
     setIsProductHubPanelOpen(false);
+    setIsSettingsPanelOpen(false);
 
     // signOutの完了イベントを待たずに画面状態を先にログアウトへ倒す。
     // 入庫一括専用の保存キーだけを消し、商品DB側のログイン状態は消さない。
@@ -1362,12 +1447,28 @@ export default function NyukoApp() {
             <button
               className={`product-hub-toggle ${productHubReady ? "product-hub-toggle--ready" : "product-hub-toggle--unset"}`}
               type="button"
-              onClick={() => setIsProductHubPanelOpen((current) => !current)}
+              onClick={() => {
+                setIsProductHubPanelOpen((current) => !current);
+                setIsSettingsPanelOpen(false);
+              }}
               aria-expanded={isProductHubPanelOpen}
             >
               <span className="product-hub-toggle-dot" />
               <span className="product-hub-toggle-label">商品DB</span>
               <strong>{productHubReady ? "接続済み" : "未接続"}</strong>
+            </button>
+            <button
+              className={`settings-toggle ${isSettingsPanelOpen ? "is-active" : ""}`}
+              type="button"
+              onClick={() => {
+                setIsSettingsPanelOpen((current) => !current);
+                setIsProductHubPanelOpen(false);
+              }}
+              aria-label="設定を開く"
+              aria-expanded={isSettingsPanelOpen}
+              title="設定"
+            >
+              <GearIcon />
             </button>
             <div className="auth-user-chip" title={authEmail}>
               <span>{authEmail}</span>
@@ -1380,6 +1481,10 @@ export default function NyukoApp() {
               settings={productHubSettings}
               userEmail={authEmail}
             />
+          )}
+
+          {isSettingsPanelOpen && (
+            <SettingsPanel theme={uiTheme} onChangeTheme={setUiTheme} />
           )}
         </div>
       </header>
