@@ -19,12 +19,21 @@
 - `箱詰め備考` 列から `●商品コード▲MMDD-数量` を抽出
 - `●商品コード▲MMDD-数量` がない行は「その他」として抽出
 
-## 商品DB連携
+## 商品DB連携 / ログイン
 
-画面右上の「商品DB」から以下を設定します。
+Supabase URL と Supabase anon key は、ビルド時の環境変数からアプリに埋め込みます。画面上での手入力は不要です。
 
-- Supabase URL
-- Supabase anon key
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://PROJECT_REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+```
+
+アプリ起動時に Supabase Auth のログイン画面を表示します。商品DBと同じメールアドレス・パスワードでログインすると、`products` の取得・更新を実行できます。
+
+GitHub Pages の Actions では、Repository secrets に以下を登録してください。
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
 対象テーブルは `products` です。
 
@@ -52,6 +61,8 @@
 
 ```bash
 npm install
+cp .env.local.example .env.local
+# .env.local に NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY を入れる
 npm run dev
 ```
 

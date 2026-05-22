@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.1",
     "@types/file-saver": "^2.0.7",
     "encoding-japanese": "^2.2.0",
     "file-saver": "^2.0.5",

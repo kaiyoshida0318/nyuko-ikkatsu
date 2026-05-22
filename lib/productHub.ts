@@ -137,12 +137,16 @@ function parseErrorMessage(responseText: string): string {
 
 export async function fetchProductHubRecords(settings: ProductHubSettings, productCodes: string[]): Promise<ProductHubRecord[]> {
   const apiKey = settings.apiKey.trim()
+  const accessToken = settings.accessToken.trim()
 
   if (!settings.apiUrl.trim()) {
-    throw new Error('Supabase URLを入力してください。')
+    throw new Error('Supabase URLが設定されていません。NEXT_PUBLIC_SUPABASE_URLを確認してください。')
   }
   if (!apiKey) {
-    throw new Error('Supabase anon keyを入力してください。')
+    throw new Error('Supabase anon keyが設定されていません。NEXT_PUBLIC_SUPABASE_ANON_KEYを確認してください。')
+  }
+  if (!accessToken) {
+    throw new Error('Supabase Authにログインしてから実行してください。')
   }
 
   const endpoint = normalizeSupabaseUrl(settings.apiUrl)
@@ -172,7 +176,7 @@ export async function fetchProductHubRecords(settings: ProductHubSettings, produ
       method: 'GET',
       headers: {
         apikey: apiKey,
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
       },
     })
@@ -230,12 +234,16 @@ export async function updateProductHubOrders(
   rows: ProductDbUpdateRow[],
 ): Promise<void> {
   const apiKey = settings.apiKey.trim()
+  const accessToken = settings.accessToken.trim()
 
   if (!settings.apiUrl.trim()) {
-    throw new Error('Supabase URLを入力してください。')
+    throw new Error('Supabase URLが設定されていません。NEXT_PUBLIC_SUPABASE_URLを確認してください。')
   }
   if (!apiKey) {
-    throw new Error('Supabase anon keyを入力してください。')
+    throw new Error('Supabase anon keyが設定されていません。NEXT_PUBLIC_SUPABASE_ANON_KEYを確認してください。')
+  }
+  if (!accessToken) {
+    throw new Error('Supabase Authにログインしてから実行してください。')
   }
   if (rows.length === 0) return
 
@@ -253,7 +261,7 @@ export async function updateProductHubOrders(
       method: 'PATCH',
       headers: {
         apikey: apiKey,
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
         'Content-Type': 'application/json',
         Prefer: 'return=representation',

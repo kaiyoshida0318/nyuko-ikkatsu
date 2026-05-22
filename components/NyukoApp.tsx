@@ -3,8 +3,10 @@
 import {
   ChangeEvent,
   DragEvent,
+  FormEvent,
   KeyboardEvent,
   ReactNode,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -18,6 +20,12 @@ import {
 } from "@/lib/formatter";
 import { runNyukoProcess } from "@/lib/process";
 import { updateProductHubOrders } from "@/lib/productHub";
+import {
+  embeddedSupabaseAnonKey,
+  embeddedSupabaseUrl,
+  getSupabaseConfigError,
+  supabase,
+} from "@/lib/supabaseClient";
 import type {
   ExtractedRow,
   MatchWarning,
@@ -50,19 +58,17 @@ function buildInitialReflectStatus(result: ProcessResult): ReflectStatusMap {
 
 const assetBasePath =
   process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "";
-const PRODUCT_HUB_API_URL_STORAGE_KEY = "nyuko-ikkatsu.productHub.apiUrl";
-const PRODUCT_HUB_API_KEY_STORAGE_KEY = "nyuko-ikkatsu.productHub.apiKey";
 const NEXT_ENGINE_PRODUCT_UPLOAD_URL = "https://main.next-engine.com/User_Syohin_Upload";
 
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
 };
 
-function loadProductHubSettings(): ProductHubSettings {
-  if (typeof window === "undefined") return { apiUrl: "", apiKey: "" };
+function buildProductHubSettings(accessToken = ""): ProductHubSettings {
   return {
-    apiUrl: window.localStorage.getItem(PRODUCT_HUB_API_URL_STORAGE_KEY) ?? "",
-    apiKey: window.localStorage.getItem(PRODUCT_HUB_API_KEY_STORAGE_KEY) ?? "",
+    apiUrl: embeddedSupabaseUrl,
+    apiKey: embeddedSupabaseAnonKey,
+    accessToken,
   };
 }
 
@@ -96,21 +102,15 @@ function mergeFiles(
 
 function ProductHubSettingsPanel({
   settings,
-  onChange,
+  userEmail,
 }: {
   settings: ProductHubSettings;
-  onChange: (settings: ProductHubSettings) => void;
+  userEmail: string;
 }) {
-  const isReady = Boolean(settings.apiUrl.trim() && settings.apiKey.trim());
-
-  function updateSetting(key: keyof ProductHubSettings, value: string) {
-    const next = { ...settings, [key]: value };
-    onChange(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(PRODUCT_HUB_API_URL_STORAGE_KEY, next.apiUrl);
-      window.localStorage.setItem(PRODUCT_HUB_API_KEY_STORAGE_KEY, next.apiKey);
-    }
-  }
+  const hasUrl = Boolean(settings.apiUrl.trim());
+  const hasAnonKey = Boolean(settings.apiKey.trim());
+  const hasAccessToken = Boolean(settings.accessToken.trim());
+  const isReady = hasUrl && hasAnonKey && hasAccessToken;
 
   return (
     <div
@@ -122,42 +122,143 @@ function ProductHubSettingsPanel({
         <div>
           <p className="eyebrow">PRODUCT DB</p>
           <h2>商品DB連携</h2>
-          <p>配送依頼書の商品コードだけを Supabase products から直接取得します。</p>
+          <p>Supabase Authでログイン中のアカウントを使って products を取得・更新します。</p>
         </div>
         <span
           className={`status-badge ${isReady ? "status-badge--good" : "status-badge--warn"}`}
         >
-          {isReady ? "設定済み" : "未設定"}
+          {isReady ? "接続済み" : "未接続"}
         </span>
       </div>
 
-      <div className="settings-grid settings-grid--header">
-        <label className="setting-field">
+      <div className="product-hub-status-grid">
+        <div className={`product-hub-status-item ${hasUrl ? "is-good" : "is-warn"}`}>
           <span>Supabase URL</span>
-          <input
-            type="url"
-            value={settings.apiUrl}
-            onChange={(event) => updateSetting("apiUrl", event.target.value)}
-            placeholder="https://PROJECT_REF.supabase.co"
-          />
-        </label>
-        <label className="setting-field">
-          <span>SUPABASE ANON KEY</span>
-          <input
-            type="password"
-            value={settings.apiKey}
-            onChange={(event) => updateSetting("apiKey", event.target.value)}
-            placeholder="SUPABASE_ANON_KEY"
-          />
-        </label>
+          <strong>{hasUrl ? "埋め込み済み" : "未設定"}</strong>
+        </div>
+        <div className={`product-hub-status-item ${hasAnonKey ? "is-good" : "is-warn"}`}>
+          <span>ANON KEY</span>
+          <strong>{hasAnonKey ? "埋め込み済み" : "未設定"}</strong>
+        </div>
+        <div className={`product-hub-status-item ${hasAccessToken ? "is-good" : "is-warn"}`}>
+          <span>ログイン</span>
+          <strong>{hasAccessToken ? userEmail || "ログイン済み" : "未ログイン"}</strong>
+        </div>
       </div>
 
       <p className="settings-note settings-note--compact">
-        Supabase URLとanon keyだけ保存します。商品情報・オーダー状況は処理時にだけ取得します。
+        URLとanon keyはビルド時の環境変数から読み込みます。ブラウザ上での手入力は不要です。
       </p>
     </div>
   );
 }
+
+function AuthShell({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <div className="auth-brand">
+          <img src={`${assetBasePath}/symbol.png`} alt="入庫一括" />
+          <div>
+            <p className="eyebrow">NYUKO IKKATSU</p>
+            <h1>入庫一括</h1>
+          </div>
+        </div>
+        {children}
+      </section>
+    </main>
+  );
+}
+
+function LoginPanel() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoginError(null);
+
+    if (!supabase) {
+      setLoginError("Supabase設定が未設定です。");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (error) throw error;
+    } catch (err) {
+      setLoginError(
+        err instanceof Error ? err.message : "ログインに失敗しました。",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <AuthShell>
+      <div className="auth-copy">
+        <h2>Supabase Authでログイン</h2>
+        <p>商品DBと同じアカウントでログインすると、Supabase products の取得・更新が使えます。</p>
+      </div>
+
+      <form className="auth-form" onSubmit={handleSubmit}>
+        <label>
+          <span>メールアドレス</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            required
+          />
+        </label>
+        <label>
+          <span>パスワード</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+            required
+          />
+        </label>
+
+        {loginError && <p className="auth-error">{loginError}</p>}
+
+        <button className="primary-button auth-submit" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "ログイン中…" : "ログイン"}
+        </button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function ConfigErrorPanel({ message }: { message: string }) {
+  return (
+    <AuthShell>
+      <div className="auth-copy">
+        <h2>Supabase設定が未設定です</h2>
+        <p>{message}</p>
+      </div>
+      <div className="auth-env-box">
+        <code>NEXT_PUBLIC_SUPABASE_URL</code>
+        <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>
+      </div>
+    </AuthShell>
+  );
+}
+
 
 function Pill({
   children,
@@ -725,7 +826,9 @@ export default function NyukoApp() {
   const [files, setFiles] = useState<SelectedFiles>(emptyFiles);
   const [unknownFiles, setUnknownFiles] = useState<File[]>([]);
   const [productHubSettings, setProductHubSettings] =
-    useState<ProductHubSettings>(loadProductHubSettings);
+    useState<ProductHubSettings>(() => buildProductHubSettings());
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authEmail, setAuthEmail] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isProductHubPanelOpen, setIsProductHubPanelOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -737,8 +840,55 @@ export default function NyukoApp() {
   const [reflectError, setReflectError] = useState<string | null>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    function applySession(accessToken: string, email: string) {
+      if (!isMounted) return;
+      setAuthEmail(email);
+      setProductHubSettings(buildProductHubSettings(accessToken));
+    }
+
+    if (!supabase) {
+      setAuthLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      const session = data.session;
+      applySession(session?.access_token ?? "", session?.user.email ?? "");
+      if (isMounted) setAuthLoading(false);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      applySession(session?.access_token ?? "", session?.user.email ?? "");
+      if (isMounted) setAuthLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleLogout() {
+    setError(null);
+    setResult(null);
+    setCorrections({});
+    setReflectStatus(initialReflectStatus);
+    setReflectError(null);
+    await supabase?.auth.signOut();
+  }
+
+  const configError = getSupabaseConfigError();
+  const isLoggedIn = Boolean(productHubSettings.accessToken);
+
   const productHubReady = Boolean(
-    productHubSettings.apiUrl.trim() && productHubSettings.apiKey.trim(),
+    productHubSettings.apiUrl.trim() &&
+      productHubSettings.apiKey.trim() &&
+      productHubSettings.accessToken.trim(),
   );
   const canRun =
     files.packingFiles.length > 0 && productHubReady && !isProcessing;
@@ -1028,6 +1178,25 @@ export default function NyukoApp() {
   const canCompleteNyuko =
     canOperateNyuko && (reflectStatus.nyuko === "exported" || reflectStatus.nyuko === "done");
 
+  if (configError) {
+    return <ConfigErrorPanel message={configError} />;
+  }
+
+  if (authLoading) {
+    return (
+      <AuthShell>
+        <div className="auth-copy">
+          <h2>ログイン状態を確認中…</h2>
+          <p>Supabase Authのセッションを確認しています。</p>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return <LoginPanel />;
+  }
+
   return (
     <main className="page-shell">
       <header className="app-header" aria-label="入庫一括">
@@ -1049,14 +1218,18 @@ export default function NyukoApp() {
             >
               <span className="product-hub-toggle-dot" />
               <span className="product-hub-toggle-label">商品DB</span>
-              <strong>{productHubReady ? "接続済み" : "未設定"}</strong>
+              <strong>{productHubReady ? "接続済み" : "未接続"}</strong>
             </button>
+            <div className="auth-user-chip" title={authEmail}>
+              <span>{authEmail}</span>
+              <button type="button" onClick={handleLogout}>ログアウト</button>
+            </div>
           </div>
 
           {isProductHubPanelOpen && (
             <ProductHubSettingsPanel
               settings={productHubSettings}
-              onChange={setProductHubSettings}
+              userEmail={authEmail}
             />
           )}
         </div>
@@ -1199,8 +1372,7 @@ export default function NyukoApp() {
         <section className="notice notice--warn">
           <strong>商品DB連携が未設定です</strong>
           <span>
-            ヘッダー右側の「商品DB」から API URL と READ API KEY
-            を入力すると処理できます。
+            Supabase Authでログインし、ビルド時に Supabase URL と ANON KEY が設定されている必要があります。
           </span>
         </section>
       )}

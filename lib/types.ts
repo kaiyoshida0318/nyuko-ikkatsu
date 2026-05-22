@@ -7,6 +7,7 @@ export type SelectedFiles = {
 export type ProductHubSettings = {
   apiUrl: string;
   apiKey: string;
+  accessToken: string;
 };
 
 export type ExtractedRow = {
