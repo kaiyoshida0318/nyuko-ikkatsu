@@ -2517,3 +2517,122 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Manual product row add form in 商品一覧/修正 */
+.manual-row-add-card {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(239, 245, 255, 0.94), rgba(240, 253, 250, 0.72));
+}
+
+.manual-row-add-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 240px;
+}
+
+.manual-row-add-copy strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.manual-row-add-copy span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.manual-row-add-fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(96px, 0.55fr) minmax(96px, 0.55fr) auto;
+  gap: 10px;
+  align-items: end;
+  flex: 1;
+}
+
+.manual-row-add-fields label {
+  display: grid;
+  gap: 5px;
+}
+
+.manual-row-add-fields label span {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.manual-row-add-fields input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.manual-row-add-fields input:focus {
+  border-color: rgba(37, 99, 235, 0.58);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.manual-row-add-button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.warning-product-name-cell {
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.warning-product-name-cell strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
+.warning-product-name-cell span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.warning-code-cell small {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #0f6b4a;
+  background: rgba(220, 252, 231, 0.82);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+@media (max-width: 900px) {
+  .manual-row-add-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .manual-row-add-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .manual-row-add-button {
+    grid-column: 1 / -1;
+  }
+}

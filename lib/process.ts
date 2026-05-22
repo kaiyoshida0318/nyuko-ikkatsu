@@ -97,13 +97,15 @@ export async function runNyukoProcess(
   files: SelectedFiles,
   productHubSettings: ProductHubSettings,
   corrections: RowCorrectionMap = {},
+  manualRows: ExtractedRow[] = [],
 ): Promise<ProcessResult> {
   if (files.packingFiles.length === 0) {
     throw new Error("ラクマート配送依頼書 P~.xlsx を選択してください。");
   }
 
   const parsed = await parsePackingFiles(files.packingFiles);
-  const extracted = applyCorrections(parsed.extracted, corrections);
+  const parsedAndManualRows = [...parsed.extracted, ...manualRows];
+  const extracted = applyCorrections(parsedAndManualRows, corrections);
   const otherRows = applyOtherCorrections(parsed.otherRows, corrections);
   const productCodes = [...new Set(extracted.map((row) => row.productCode))];
   const productRecords = await fetchProductHubRecords(

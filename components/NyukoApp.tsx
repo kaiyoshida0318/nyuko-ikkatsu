@@ -295,6 +295,18 @@ type EditableExtractedRow = {
   warningLabels: string[];
 };
 
+type ManualExtractedRowDraft = {
+  productCode: string;
+  mmdd: string;
+  quantity: string;
+};
+
+const emptyManualDraft: ManualExtractedRowDraft = {
+  productCode: "",
+  mmdd: "",
+  quantity: "",
+};
+
 function getWarningLabel(type: MatchWarning["type"]) {
   if (type === "no_product") return "商品DB未登録";
   if (type === "no_key") return "キー未一致";
@@ -513,6 +525,7 @@ function ExtractedRowsEditPanel({
   onChange,
   onResetRow,
   onDeleteRow,
+  onAddManualRow,
   onApply,
   isProcessing,
 }: {
@@ -521,6 +534,7 @@ function ExtractedRowsEditPanel({
   onChange: (rowId: string, patch: RowCorrection) => void;
   onResetRow: (rowId: string) => void;
   onDeleteRow: (rowId: string) => void;
+  onAddManualRow: (draft: ManualExtractedRowDraft) => void;
   onApply: () => void;
   isProcessing: boolean;
 }) {
@@ -539,6 +553,25 @@ function ExtractedRowsEditPanel({
     }
     return map;
   }, [result.productHubRecords]);
+  const [manualDraft, setManualDraft] = useState<ManualExtractedRowDraft>(emptyManualDraft);
+  const normalizedManualMmdd = manualDraft.mmdd.replace(/\D/g, "").slice(0, 4);
+  const normalizedManualQuantity = manualDraft.quantity.replace(/,/g, "").trim();
+  const canAddManualRow =
+    manualDraft.productCode.trim().length > 0 &&
+    normalizedManualMmdd.length === 4 &&
+    Number.isFinite(Number(normalizedManualQuantity)) &&
+    Number(normalizedManualQuantity) > 0 &&
+    !isProcessing;
+
+  function handleAddManualRow() {
+    if (!canAddManualRow) return;
+    onAddManualRow({
+      productCode: manualDraft.productCode.trim(),
+      mmdd: normalizedManualMmdd,
+      quantity: normalizedManualQuantity,
+    });
+    setManualDraft(emptyManualDraft);
+  }
 
   if (rows.length === 0 && otherRows.length === 0) return null;
 
@@ -551,12 +584,65 @@ function ExtractedRowsEditPanel({
           <p className="eyebrow">EDIT</p>
           <h2>商品一覧/修正</h2>
           <p>
-            通常商品は上の一覧で修正できます。備考に商品コードキーがない行は下の「その他」に分けて表示します。
+            商品名・オーダー状況はSupabase productsから取得します。配送依頼書にない商品も手入力で追加できます。
           </p>
         </div>
         <Pill tone={warningRowCount > 0 || otherRows.length > 0 ? "warn" : "good"}>
           商品{rows.length}行 / その他{otherRows.length}行 / 警告{warningRowCount}行
         </Pill>
+      </div>
+
+      <div className="manual-row-add-card" aria-label="商品行を手入力で追加">
+        <div className="manual-row-add-copy">
+          <strong>商品行を手入力で追加</strong>
+          <span>配送依頼書に載っていない商品を、商品コード・オーダー日・オーダー数で追加できます。</span>
+        </div>
+        <div className="manual-row-add-fields">
+          <label>
+            <span>商品コード</span>
+            <input
+              type="text"
+              value={manualDraft.productCode}
+              placeholder="例: sample-01"
+              onChange={(event) =>
+                setManualDraft((current) => ({ ...current, productCode: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            <span>オーダー日</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              value={manualDraft.mmdd}
+              placeholder="0423"
+              onChange={(event) =>
+                setManualDraft((current) => ({ ...current, mmdd: event.target.value }))
+              }
+            />
+          </label>
+          <label>
+            <span>オーダー数</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={manualDraft.quantity}
+              placeholder="20"
+              onChange={(event) =>
+                setManualDraft((current) => ({ ...current, quantity: event.target.value }))
+              }
+            />
+          </label>
+          <button
+            className="secondary-button manual-row-add-button"
+            type="button"
+            onClick={handleAddManualRow}
+            disabled={!canAddManualRow}
+          >
+            行を追加
+          </button>
+        </div>
       </div>
 
       {rows.length > 0 && (
@@ -566,6 +652,7 @@ function ExtractedRowsEditPanel({
               <tr className="warning-fix-group-row">
                 <th rowSpan={2}>状態</th>
                 <th rowSpan={2}>商品コード</th>
+                <th rowSpan={2}>商品名</th>
                 <th rowSpan={2}>商品DBオーダー状況</th>
                 <th className="warning-group-header warning-group-header--delivery" colSpan={3}>
                   配送依頼書
@@ -626,6 +713,14 @@ function ExtractedRowsEditPanel({
                     </td>
                     <td className="warning-code-cell">
                       <strong>{row.productCode}</strong>
+                      {row.sourceFile === "手入力" && <small>手入力</small>}
+                    </td>
+                    <td className="warning-product-name-cell">
+                      {productRecord?.productName ? (
+                        <strong>{productRecord.productName}</strong>
+                      ) : (
+                        <span>商品名未取得</span>
+                      )}
                     </td>
                     <td className="warning-db-keys-cell">
                       {productDbKeys.length > 0 ? (
@@ -850,6 +945,7 @@ export default function NyukoApp() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ProcessResult | null>(null);
+  const [manualRows, setManualRows] = useState<ExtractedRow[]>([]);
   const [corrections, setCorrections] = useState<RowCorrectionMap>({});
   const [activeTab, setActiveTab] = useState<PreviewTab>("extracted");
   const [reflectStatus, setReflectStatus] = useState<ReflectStatusMap>(initialReflectStatus);
@@ -892,6 +988,7 @@ export default function NyukoApp() {
   async function handleLogout() {
     setError(null);
     setResult(null);
+    setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
@@ -928,29 +1025,7 @@ export default function NyukoApp() {
     files.packingFiles.length > 0 && productHubReady && !isProcessing;
   const selectedFileCount = files.packingFiles.length;
 
-  const summary = useMemo(() => {
-    if (!result) return null;
-    const noProduct = result.matchResult.warnings.filter(
-      (warning) => warning.type === "no_product",
-    ).length;
-    const noKey = result.matchResult.warnings.filter(
-      (warning) => warning.type === "no_key",
-    ).length;
-    const quantityMismatch = result.matchResult.warnings.filter(
-      (warning) => warning.type === "quantity_mismatch",
-    ).length;
-    return {
-      extracted: result.extracted.length,
-      ne: result.neRows.length,
-      productDb: result.productDbUpdateRows.length,
-      nyuko: result.nyukoRows.length,
-      other: result.otherRows.length,
-      warnings: result.matchResult.warnings.length,
-      noProduct,
-      noKey,
-      quantityMismatch,
-    };
-  }, [result]);
+
 
   function openBulkFilePicker() {
     bulkInputRef.current?.click();
@@ -980,6 +1055,7 @@ export default function NyukoApp() {
   function acceptFiles(incoming: File[]) {
     setError(null);
     setResult(null);
+    setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
@@ -1006,6 +1082,7 @@ export default function NyukoApp() {
   function removePackingFile(targetIndex: number) {
     setError(null);
     setResult(null);
+    setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
@@ -1059,6 +1136,7 @@ export default function NyukoApp() {
   async function runWithCorrections(
     nextCorrections: RowCorrectionMap,
     options: RunOptions = {},
+    nextManualRows: ExtractedRow[] = manualRows,
   ) {
     const scrollPosition =
       options.preserveScroll && typeof window !== "undefined"
@@ -1076,6 +1154,7 @@ export default function NyukoApp() {
         files,
         productHubSettings,
         nextCorrections,
+        nextManualRows,
       );
       setResult(processResult);
       setReflectStatus(buildInitialReflectStatus(processResult));
@@ -1106,11 +1185,47 @@ export default function NyukoApp() {
     });
   }
 
+  async function addManualRow(draft: ManualExtractedRowDraft) {
+    const productCode = draft.productCode.trim();
+    const mmdd = draft.mmdd.replace(/\D/g, "").slice(0, 4);
+    const quantity = Number(draft.quantity.replace(/,/g, "").trim());
+    if (!productCode || mmdd.length !== 4 || !Number.isFinite(quantity) || quantity <= 0) {
+      setError("手入力行は、商品コード・4桁のオーダー日・1以上のオーダー数を入力してください。");
+      return;
+    }
+
+    const normalizedQuantity = Math.trunc(quantity);
+    const productCodeLc = productCode.toLowerCase();
+    const rowId = `manual__${productCodeLc}__${mmdd}__${normalizedQuantity}__${Date.now()}`;
+    const manualRow: ExtractedRow = {
+      rowId,
+      productCode,
+      productCodeLc,
+      mmdd,
+      quantity: normalizedQuantity,
+      receivedQuantity: normalizedQuantity,
+      key: `${mmdd}-${normalizedQuantity}`,
+      sourceKey: `${mmdd}-${normalizedQuantity}`,
+      packingQuantities: [],
+      quantityMismatch: false,
+      sourceNote: "手入力",
+      sourceFile: "手入力",
+    };
+    const nextManualRows = [...manualRows, manualRow];
+    setManualRows(nextManualRows);
+    await runWithCorrections(
+      corrections,
+      { keepActiveTab: true, keepCurrentResult: true, preserveScroll: true },
+      nextManualRows,
+    );
+  }
+
   function clearAll() {
     setFiles(emptyFiles);
     setUnknownFiles([]);
     setError(null);
     setResult(null);
+    setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
@@ -1418,34 +1533,7 @@ export default function NyukoApp() {
         </section>
       )}
 
-      {summary && (
-        <section className="summary-grid">
-          <div>
-            <span>抽出</span>
-            <strong>{summary.extracted}</strong>
-          </div>
-          <div>
-            <span>NE更新</span>
-            <strong>{summary.ne}</strong>
-          </div>
-          <div>
-            <span>商品DB更新</span>
-            <strong>{summary.productDb}</strong>
-          </div>
-          <div>
-            <span>入庫リスト</span>
-            <strong>{summary.nyuko}</strong>
-          </div>
-          <div className={summary.other ? "summary-warn" : ""}>
-            <span>その他</span>
-            <strong>{summary.other}</strong>
-          </div>
-          <div className={summary.warnings ? "summary-warn" : "summary-good"}>
-            <span>警告</span>
-            <strong>{summary.warnings}</strong>
-          </div>
-        </section>
-      )}
+
 
       {result && (
         <ExtractedRowsEditPanel
@@ -1454,6 +1542,7 @@ export default function NyukoApp() {
           onChange={updateCorrection}
           onResetRow={resetCorrection}
           onDeleteRow={deleteRow}
+          onAddManualRow={addManualRow}
           onApply={handleApplyCorrections}
           isProcessing={isProcessing}
         />
