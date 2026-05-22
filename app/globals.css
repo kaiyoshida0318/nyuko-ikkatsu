@@ -2695,7 +2695,7 @@ input:focus-visible,
 }
 
 .page-shell {
-  width: min(1580px, calc(100% - 40px));
+  width: min(1850px, calc(100% - 40px));
   padding-bottom: 42px;
 }
 
@@ -2711,7 +2711,7 @@ input:focus-visible,
 }
 
 .app-header-inner {
-  width: min(1580px, calc(100% - 40px));
+  width: min(1850px, calc(100% - 40px));
   min-height: var(--chrome-height);
 }
 
@@ -3313,7 +3313,7 @@ th {
 @media (max-width: 1080px) {
   .page-shell,
   .app-header-inner {
-    width: min(100% - 28px, 1580px);
+    width: min(100% - 28px, 1850px);
   }
 
   .notice {
@@ -3338,7 +3338,7 @@ th {
 
   .page-shell,
   .app-header-inner {
-    width: min(100% - 20px, 1580px);
+    width: min(100% - 20px, 1850px);
   }
 
   .app-symbol {
