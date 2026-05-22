@@ -72,6 +72,24 @@ function buildProductHubSettings(accessToken = ""): ProductHubSettings {
   };
 }
 
+
+function clearSupabaseAuthStorage() {
+  if (typeof window === "undefined") return;
+
+  const shouldRemoveKey = (key: string) =>
+    key.includes("supabase.auth.token") ||
+    (key.startsWith("sb-") && key.endsWith("-auth-token"));
+
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key && shouldRemoveKey(key)) keysToRemove.push(key);
+    }
+    for (const key of keysToRemove) storage.removeItem(key);
+  }
+}
+
 function formatFileSize(file: File) {
   if (file.size < 1024) return `${file.size} B`;
   if (file.size < 1024 * 1024) return `${(file.size / 1024).toFixed(1)} KB`;
@@ -879,7 +897,26 @@ export default function NyukoApp() {
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
-    await supabase?.auth.signOut();
+    setIsProductHubPanelOpen(false);
+
+    // signOutの完了イベントを待たずに画面状態を先にログアウトへ倒す。
+    // GitHub Pages上でSupabaseの保存済みセッションが残った場合でも、
+    // localStorage/sessionStorageを明示的に消して次回表示時に再ログインさせる。
+    setAuthEmail("");
+    setProductHubSettings(buildProductHubSettings(""));
+
+    try {
+      const { error: signOutError } =
+        (await supabase?.auth.signOut({ scope: "local" })) ?? {};
+      if (signOutError) {
+        console.warn("Supabase signOut failed:", signOutError.message);
+      }
+    } catch (signOutError) {
+      console.warn("Supabase signOut failed:", signOutError);
+    } finally {
+      clearSupabaseAuthStorage();
+      setAuthLoading(false);
+    }
   }
 
   const configError = getSupabaseConfigError();
