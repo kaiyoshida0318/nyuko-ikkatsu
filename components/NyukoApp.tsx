@@ -44,6 +44,27 @@ type ReflectStatus = "pending" | "exported" | "updating" | "done" | "error";
 type ReflectStatusMap = { ne: ReflectStatus; productDb: ReflectStatus; nyuko: ReflectStatus };
 type UiTheme = "light" | "dark";
 
+type SecretQuestionResponse = {
+  ok?: boolean;
+  question?: string;
+  displayName?: string;
+  error?: string;
+};
+
+type SecretLoginResponse = {
+  ok?: boolean;
+  email?: string;
+  user?: {
+    id?: string;
+    email?: string;
+  };
+  session?: {
+    access_token?: string;
+    refresh_token?: string;
+  };
+  error?: string;
+};
+
 const UI_THEME_STORAGE_KEY = "nyuko-ikkatsu-ui-theme";
 
 function getInitialUiTheme(): UiTheme {
@@ -67,6 +88,7 @@ function buildInitialReflectStatus(result: ProcessResult): ReflectStatusMap {
 
 const assetBasePath =
   process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "";
+const AUTH_API_BASE_URL = String(process.env.NEXT_PUBLIC_AUTH_API_BASE_URL ?? "").replace(/\/+$/, "");
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
 };
@@ -194,10 +216,40 @@ function AuthShell({
 }
 
 function LoginPanel() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [question, setQuestion] = useState("秘密の質問");
+  const [displayName, setDisplayName] = useState("秘密の質問ログイン");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchQuestion() {
+      if (!AUTH_API_BASE_URL) return;
+
+      try {
+        const response = await fetch(`${AUTH_API_BASE_URL}/api/auth/question`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as SecretQuestionResponse;
+        if (!isMounted) return;
+        if (response.ok && payload.ok) {
+          setQuestion(payload.question || "秘密の質問");
+          setDisplayName(payload.displayName || "秘密の質問ログイン");
+        }
+      } catch {
+        if (isMounted) setQuestion("秘密の質問");
+      }
+    }
+
+    fetchQuestion();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -207,19 +259,39 @@ function LoginPanel() {
       setLoginError("Supabase設定が未設定です。");
       return;
     }
+    if (!AUTH_API_BASE_URL) {
+      setLoginError("ログインAPIが未設定です。NEXT_PUBLIC_AUTH_API_BASE_URLを設定してください。");
+      return;
+    }
+    if (!answer.trim()) {
+      setLoginError("回答を入力してください。");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const response = await fetch(`${AUTH_API_BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer: answer.trim() }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as SecretLoginResponse;
+
+      if (!response.ok || !payload.ok || !payload.session?.access_token || !payload.session.refresh_token) {
+        throw new Error(payload.error || "ログインに失敗しました。");
+      }
+
+      const { error } = await supabase.auth.setSession({
+        access_token: payload.session.access_token,
+        refresh_token: payload.session.refresh_token,
       });
       if (error) throw error;
+      setAnswer("");
     } catch (err) {
       const message = err instanceof Error ? err.message : "ログインに失敗しました。";
       setLoginError(
         message === "Failed to fetch"
-          ? "Supabaseに接続できませんでした。NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY の設定、またはネットワーク接続を確認してください。"
+          ? "ログインAPIに接続できませんでした。NEXT_PUBLIC_AUTH_API_BASE_URL と Worker のCORS設定を確認してください。"
           : message,
       );
     } finally {
@@ -230,28 +302,19 @@ function LoginPanel() {
   return (
     <AuthShell>
       <div className="auth-copy">
-        <h2>Supabase Authでログイン</h2>
-        <p>商品DBと同じアカウントでログインすると、Supabase products の取得・更新が使えます。</p>
+        <h2>{displayName}</h2>
+        <p>商品DBと同じ秘密の質問でログインします。</p>
       </div>
 
       <form className="auth-form" onSubmit={handleSubmit}>
         <label>
-          <span>メールアドレス</span>
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="email"
-            required
-          />
-        </label>
-        <label>
-          <span>パスワード</span>
+          <span>{question}</span>
           <input
             type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
             autoComplete="current-password"
+            placeholder="回答を入力"
             required
           />
         </label>
@@ -1791,3 +1854,4 @@ export default function NyukoApp() {
     </main>
   );
 }
+
