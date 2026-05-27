@@ -201,13 +201,9 @@ function AuthShell({
 }) {
   return (
     <main className="auth-shell">
-      <section className="auth-card">
-        <div className="auth-brand">
+      <section className="auth-card auth-card--simple">
+        <div className="auth-brand auth-brand--simple">
           <img src={`${assetBasePath}/symbol.png`} alt="入庫一括" />
-          <div>
-            <p className="eyebrow">NYUKO IKKATSU</p>
-            <h1>入庫一括</h1>
-          </div>
         </div>
         {children}
       </section>
@@ -301,14 +297,9 @@ function LoginPanel() {
 
   return (
     <AuthShell>
-      <div className="auth-copy">
-        <h2>{displayName}</h2>
-        <p>商品DBと同じ秘密の質問でログインします。</p>
-      </div>
-
-      <form className="auth-form" onSubmit={handleSubmit}>
-        <label>
-          <span>{question}</span>
+      <form className="auth-form auth-form--simple" onSubmit={handleSubmit}>
+        <label className="auth-question-field">
+          <span className="auth-question-text">{question}</span>
           <input
             type="password"
             value={answer}
