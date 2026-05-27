@@ -37,6 +37,8 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_NE_SYNC_WORKER_URL: ${{ secrets.NEXT_PUBLIC_NE_SYNC_WORKER_URL }}
+          NEXT_PUBLIC_AUTH_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_AUTH_API_BASE_URL }}
+          AUTH_API_BASE_URL: ${{ secrets.AUTH_API_BASE_URL }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
