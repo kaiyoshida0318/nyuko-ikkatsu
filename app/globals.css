@@ -3749,7 +3749,7 @@ html[data-theme="dark"] .auth-question-text {
 
 .upload-run-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.16fr) minmax(360px, 0.84fr);
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 25%, 480px);
   gap: 16px;
   align-items: stretch;
 }
@@ -3757,7 +3757,7 @@ html[data-theme="dark"] .auth-question-text {
 .upload-run-grid > .drop-zone,
 .upload-run-grid > .action-panel {
   height: 100%;
-  min-height: 148px;
+  min-height: 300px;
   margin-top: 0;
 }
 
