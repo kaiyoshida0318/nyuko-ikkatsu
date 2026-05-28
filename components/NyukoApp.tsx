@@ -1550,60 +1550,108 @@ export default function NyukoApp() {
         </div>
       </header>
 
-      <section
-        className={`drop-zone ${isDragging ? "is-dragging" : ""} ${selectedFileCount > 0 ? "has-files" : ""}`}
-        role="button"
-        tabIndex={0}
-        aria-label="ラクマート配送依頼書を選択またはドロップ"
-        onClick={openBulkFilePicker}
-        onKeyDown={handleDropZoneKeyDown}
-        onDragEnter={() => setIsDragging(true)}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={handleDropZoneDragLeave}
-        onDrop={handleDrop}
-      >
-        <input
-          ref={bulkInputRef}
-          className="drop-zone-input"
-          type="file"
-          multiple
-          accept=".xlsx"
-          onClick={(event) => event.stopPropagation()}
-          onChange={handleBulkInput}
-        />
-        <div className="drop-zone-main">
-          <div className="drop-visual" aria-hidden="true">
-            <span className="drop-visual-ring" />
-            <span className="drop-icon">↓</span>
-          </div>
-          <div className="drop-copy">
-            <p className="eyebrow">UPLOAD</p>
-            <h2>
-              {isDragging
-                ? "ここにドロップして追加"
-                : "ラクマート配送依頼書をドロップor選択"}
-            </h2>
-            <div className="drop-hints" aria-hidden="true">
-              <span>P~.xlsx 複数可</span>
-              <span>商品情報は自動取得</span>
-              <span>オーダー状況も自動取得</span>
+      <div className="upload-run-grid">
+        <section
+          className={`drop-zone ${isDragging ? "is-dragging" : ""} ${selectedFileCount > 0 ? "has-files" : ""}`}
+          role="button"
+          tabIndex={0}
+          aria-label="ラクマート配送依頼書を選択またはドロップ"
+          onClick={openBulkFilePicker}
+          onKeyDown={handleDropZoneKeyDown}
+          onDragEnter={() => setIsDragging(true)}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={handleDropZoneDragLeave}
+          onDrop={handleDrop}
+        >
+          <input
+            ref={bulkInputRef}
+            className="drop-zone-input"
+            type="file"
+            multiple
+            accept=".xlsx"
+            onClick={(event) => event.stopPropagation()}
+            onChange={handleBulkInput}
+          />
+          <div className="drop-zone-main">
+            <div className="drop-visual" aria-hidden="true">
+              <span className="drop-visual-ring" />
+              <span className="drop-icon">↓</span>
+            </div>
+            <div className="drop-copy">
+              <p className="eyebrow">UPLOAD</p>
+              <h2>
+                {isDragging
+                  ? "ここにドロップして追加"
+                  : "ラクマート配送依頼書をドロップ"}
+              </h2>
             </div>
           </div>
-        </div>
-        <div className="drop-zone-side">
-          <span className="drop-selected-count">
-            {selectedFileCount > 0
-              ? `${selectedFileCount}ファイル選択中`
-              : "未選択"}
-          </span>
-          <span className="upload-button upload-button--fake">
-            ファイルを選択
-          </span>
-        </div>
-      </section>
+          <div className="drop-zone-side">
+            <span className="drop-selected-count">
+              {selectedFileCount > 0
+                ? `${selectedFileCount}ファイル選択中`
+                : "未選択"}
+            </span>
+          </div>
+        </section>
+
+        <section className={`action-panel ${selectedFileCount > 0 ? "action-panel--has-selection" : ""}`}>
+          <div className="action-panel-main">
+            <p className="eyebrow">RUN</p>
+            <h2>処理実行</h2>
+            <div className="action-selection-status" aria-live="polite">
+              <span>対象ファイル</span>
+              <strong>
+                {selectedFileCount > 0
+                  ? `${selectedFileCount}ファイル`
+                  : "ファイル未選択"}
+              </strong>
+            </div>
+
+            {files.packingFiles.length > 0 && (
+              <ul className="file-list action-file-list" aria-label="処理対象ファイル">
+                {files.packingFiles.map((file, index) => (
+                  <li key={`${file.name}-${file.size}-${index}`}>
+                    <div className="file-row-main">
+                      <span>{file.name}</span>
+                      <small>{formatFileSize(file)}</small>
+                    </div>
+                    <button
+                      className="file-remove-button"
+                      type="button"
+                      onClick={() => removePackingFile(index)}
+                      aria-label={`${file.name}を削除`}
+                    >
+                      削除
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="action-buttons">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={clearAll}
+              disabled={selectedFileCount === 0 && unknownFiles.length === 0 && !result}
+            >
+              選択中をクリア
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={handleRun}
+              disabled={!canRun}
+            >
+              {isProcessing ? "商品DB取得中…" : "処理実行"}
+            </button>
+          </div>
+        </section>
+      </div>
 
       {unknownFiles.length > 0 && (
         <section className="notice notice--warn">
@@ -1628,60 +1676,6 @@ export default function NyukoApp() {
           </ul>
         </section>
       )}
-
-      <section className={`action-panel ${selectedFileCount > 0 ? "action-panel--has-selection" : ""}`}>
-        <div className="action-panel-main">
-          <p className="eyebrow">RUN</p>
-          <h2>処理実行</h2>
-          <div className="action-selection-status" aria-live="polite">
-            <span>対象ファイル</span>
-            <strong>
-              {selectedFileCount > 0
-                ? `${selectedFileCount}ファイル`
-                : "ファイル未選択"}
-            </strong>
-          </div>
-
-          {files.packingFiles.length > 0 && (
-            <ul className="file-list action-file-list" aria-label="処理対象ファイル">
-              {files.packingFiles.map((file, index) => (
-                <li key={`${file.name}-${file.size}-${index}`}>
-                  <div className="file-row-main">
-                    <span>{file.name}</span>
-                    <small>{formatFileSize(file)}</small>
-                  </div>
-                  <button
-                    className="file-remove-button"
-                    type="button"
-                    onClick={() => removePackingFile(index)}
-                    aria-label={`${file.name}を削除`}
-                  >
-                    削除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="action-buttons">
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={clearAll}
-            disabled={selectedFileCount === 0 && unknownFiles.length === 0 && !result}
-          >
-            選択中をクリア
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={handleRun}
-            disabled={!canRun}
-          >
-            {isProcessing ? "商品DB取得中…" : "処理実行"}
-          </button>
-        </div>
-      </section>
 
       {!productHubReady && (
         <section className="notice notice--warn">

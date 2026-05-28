@@ -3740,3 +3740,104 @@ html[data-theme="dark"] .status-badge--warn {
 html[data-theme="dark"] .auth-question-text {
   color: var(--text);
 }
+
+
+/* Upload / Run horizontal layout */
+.app-header + .upload-run-grid {
+  margin-top: 16px;
+}
+
+.upload-run-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.16fr) minmax(360px, 0.84fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.upload-run-grid > .drop-zone,
+.upload-run-grid > .action-panel {
+  height: 100%;
+  min-height: 148px;
+  margin-top: 0;
+}
+
+.upload-run-grid > .drop-zone {
+  border: 1.5px dashed rgba(94, 106, 210, 0.36);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 249, 255, 0.94)),
+    #fff;
+}
+
+.upload-run-grid > .drop-zone:hover,
+.upload-run-grid > .drop-zone:focus-visible {
+  border-color: rgba(94, 106, 210, 0.58);
+  background: #fff;
+}
+
+.upload-run-grid > .drop-zone.is-dragging {
+  border-style: dashed;
+  border-color: rgba(94, 106, 210, 0.78);
+}
+
+.upload-run-grid .drop-zone-side {
+  align-self: flex-start;
+}
+
+.upload-run-grid .drop-selected-count {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+}
+
+.upload-run-grid > .action-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.upload-run-grid .action-panel-main {
+  width: 100%;
+}
+
+.upload-run-grid .action-file-list {
+  max-width: none;
+}
+
+.upload-run-grid .action-buttons {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1080px) {
+  .upload-run-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .upload-run-grid > .drop-zone,
+  .upload-run-grid > .action-panel {
+    min-height: auto;
+  }
+
+  .upload-run-grid .action-buttons .primary-button,
+  .upload-run-grid .action-buttons .secondary-button {
+    width: 100%;
+  }
+}
+
+html[data-theme="dark"] .upload-run-grid > .drop-zone {
+  border-color: rgba(139, 147, 255, 0.36);
+  background: linear-gradient(180deg, rgba(27, 30, 38, 0.96), rgba(23, 25, 31, 0.96));
+}
+
+html[data-theme="dark"] .upload-run-grid > .drop-zone:hover,
+html[data-theme="dark"] .upload-run-grid > .drop-zone:focus-visible {
+  border-color: rgba(139, 147, 255, 0.58);
+}
