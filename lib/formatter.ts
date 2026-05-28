@@ -3,6 +3,10 @@ import * as XLSX from 'xlsx'
 import { makeCp932Blob } from './encoding'
 import { NeUpdateRow, NyukoListRow, OtherPackingRow, ProcessResult } from './types'
 
+const NYUKO_HEADERS = ['商品コード', '商品名', '入庫数', '階数', '備考'] as const
+const OTHER_HEADERS = ['分類', '品名', '梱包数', '備考', ''] as const
+const NYUKO_COLUMN_COUNT = NYUKO_HEADERS.length
+
 function csvEscape(value: unknown): string {
   const text = String(value ?? '')
   if (/[",\r\n]/.test(text)) {
@@ -24,45 +28,250 @@ export function makeNeCsvBlob(rows: NeUpdateRow[]): Blob {
   return makeCp932Blob(csv)
 }
 
+function getFloorSortKey(floor: unknown): { group: number; value: number; text: string } {
+  const text = String(floor ?? '').trim()
+  if (!text) return { group: 1, value: Number.POSITIVE_INFINITY, text: '' }
+
+  const normalized = text.toUpperCase().replace(/\s+/g, '')
+  const basementMatch = normalized.match(/^B(\d+)/)
+  if (basementMatch) return { group: 0, value: -Number(basementMatch[1]), text: normalized }
+
+  const numberMatch = normalized.match(/(\d+)/)
+  if (numberMatch) return { group: 0, value: Number(numberMatch[1]), text: normalized }
+
+  return { group: 0, value: Number.POSITIVE_INFINITY, text: normalized }
+}
+
+function compareNyukoRows(a: NyukoListRow, b: NyukoListRow): number {
+  const floorA = getFloorSortKey(a.階数)
+  const floorB = getFloorSortKey(b.階数)
+
+  if (floorA.group !== floorB.group) return floorA.group - floorB.group
+  if (floorA.value !== floorB.value) return floorA.value - floorB.value
+
+  const floorTextCompare = floorA.text.localeCompare(floorB.text, 'ja', { numeric: true, sensitivity: 'base' })
+  if (floorTextCompare !== 0) return floorTextCompare
+
+  return String(a.商品コード ?? '').localeCompare(String(b.商品コード ?? ''), 'ja', {
+    numeric: true,
+    sensitivity: 'base',
+  })
+}
+
+function padSheetRow(row: unknown[]): unknown[] {
+  return Array.from({ length: NYUKO_COLUMN_COUNT }, (_, index) => row[index] ?? '')
+}
+
 function buildNyukoSheetData(rows: NyukoListRow[], otherRows: OtherPackingRow[]): unknown[][] {
-  const headers = ['商品コード', '商品名', '入庫数', '階数', '備考']
+  const sortedRows = [...rows].sort(compareNyukoRows)
   const data: unknown[][] = [
-    headers,
-    ...rows.map((row) => headers.map((header) => row[header as keyof NyukoListRow])),
+    [...NYUKO_HEADERS],
+    ...sortedRows.map((row) => NYUKO_HEADERS.map((header) => row[header])),
   ]
 
   if (otherRows.length > 0) {
-    data.push([])
-    data.push(['その他'])
-    data.push(['分類', '品名', '梱包数', '備考'])
+    data.push(['', '', '', '', ''])
+    data.push(['その他', '', '', '', ''])
+    data.push([...OTHER_HEADERS])
     for (const row of otherRows) {
-      data.push([
+      data.push(padSheetRow([
         row.category,
         row.itemName,
         row.packingQuantity ?? '',
         row.note,
-      ])
+        '',
+      ]))
     }
   }
 
-  return data
+  return data.map(padSheetRow)
 }
 
-export function makeNyukoXlsxBlob(rows: NyukoListRow[], otherRows: OtherPackingRow[] = []): Blob {
+function getDisplayWidth(value: unknown): number {
+  return String(value ?? '')
+    .split(/\r?\n/)
+    .reduce((max, line) => {
+      let width = 0
+      for (const char of line) {
+        width += char.charCodeAt(0) <= 0xff ? 1 : 2
+      }
+      return Math.max(max, width)
+    }, 0)
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function buildNyukoColumnWidths(data: unknown[][]): XLSX.ColInfo[] {
+  const minimums = [22, 36, 10, 12, 46]
+  const maximums = [36, 60, 14, 16, 70]
+
+  return minimums.map((minimum, columnIndex) => {
+    const maxContentWidth = data.reduce((max, row) => Math.max(max, getDisplayWidth(row[columnIndex])), 0)
+    return { wch: clamp(maxContentWidth + 4, minimum, maximums[columnIndex]) }
+  })
+}
+
+function buildNyukoStylesXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="3">
+    <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>
+    <font><sz val="12"/><color rgb="FF111827"/><name val="Meiryo"/><family val="2"/></font>
+    <font><b/><sz val="12"/><color rgb="FF111827"/><name val="Meiryo"/><family val="2"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFB7B7B7"/></left>
+      <right style="thin"><color rgb="FFB7B7B7"/></right>
+      <top style="thin"><color rgb="FFB7B7B7"/></top>
+      <bottom style="thin"><color rgb="FFB7B7B7"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="5">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+  <dxfs count="0"/>
+  <tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
+</styleSheet>`
+}
+
+function getCellRowNumber(cellRef: string): number {
+  const match = cellRef.match(/\d+/)
+  return match ? Number(match[0]) : 0
+}
+
+function getCellColumn(cellRef: string): string {
+  const match = cellRef.match(/[A-Z]+/i)
+  return match ? match[0].toUpperCase() : ''
+}
+
+function getNyukoStyleIndex(cellRef: string, mainRowCount: number, hasOtherRows: boolean): number {
+  const rowNumber = getCellRowNumber(cellRef)
+  const column = getCellColumn(cellRef)
+
+  if (rowNumber === 1) return 3
+
+  const mainDataEndRow = mainRowCount + 1
+  if (rowNumber >= 2 && rowNumber <= mainDataEndRow) {
+    return column === 'C' || column === 'D' ? 2 : 1
+  }
+
+  if (!hasOtherRows) return column === 'C' || column === 'D' ? 2 : 1
+
+  const otherTitleRow = mainRowCount + 3
+  const otherHeaderRow = mainRowCount + 4
+
+  if (rowNumber === otherTitleRow) return column === 'A' ? 4 : 1
+  if (rowNumber === otherHeaderRow) return 3
+  if (rowNumber > otherHeaderRow) return column === 'C' ? 2 : 1
+
+  return 1
+}
+
+function applyCellStyles(sheetXml: string, mainRowCount: number, hasOtherRows: boolean): string {
+  return sheetXml.replace(/<c\b([^>]*\br="([^"]+)"[^>]*)>/g, (match, attributes: string, cellRef: string) => {
+    const styleIndex = getNyukoStyleIndex(cellRef, mainRowCount, hasOtherRows)
+    if (/\bs="\d+"/.test(attributes)) {
+      return `<c${attributes.replace(/\bs="\d+"/, `s="${styleIndex}"`)}>`
+    }
+    return `<c${attributes} s="${styleIndex}">`
+  })
+}
+
+function applyRowHeights(sheetXml: string, mainRowCount: number, hasOtherRows: boolean): string {
+  const otherTitleRow = mainRowCount + 3
+  const otherHeaderRow = mainRowCount + 4
+
+  return sheetXml.replace(/<row\b([^>]*\br="(\d+)"[^>]*)>/g, (match, attributes: string, rowText: string) => {
+    const rowNumber = Number(rowText)
+    const height = rowNumber === 1 || (hasOtherRows && rowNumber === otherHeaderRow) ? 24 : hasOtherRows && rowNumber === otherTitleRow ? 24 : 22
+    const withoutHeight = attributes
+      .replace(/\sht="[^"]*"/g, '')
+      .replace(/\scustomHeight="[^"]*"/g, '')
+    return `<row${withoutHeight} ht="${height}" customHeight="1">`
+  })
+}
+
+function applySheetView(sheetXml: string): string {
+  const sheetViewXml = '<sheetViews><sheetView workbookViewId="0" view="pageBreakPreview"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews>'
+
+  if (/<sheetViews>[\s\S]*?<\/sheetViews>/.test(sheetXml)) {
+    return sheetXml.replace(/<sheetViews>[\s\S]*?<\/sheetViews>/, sheetViewXml)
+  }
+
+  return sheetXml.replace(/(<worksheet[^>]*>)/, `$1${sheetViewXml}`)
+}
+
+function applyPrintSettings(sheetXml: string): string {
+  let xml = sheetXml
+
+  if (/<sheetPr[\s>]/.test(xml)) {
+    if (/<pageSetUpPr[\s\S]*?\/>/.test(xml)) {
+      xml = xml.replace(/<pageSetUpPr[\s\S]*?\/>/, '<pageSetUpPr fitToPage="1"/>')
+    } else {
+      xml = xml.replace(/<sheetPr([^>]*)>/, '<sheetPr$1><pageSetUpPr fitToPage="1"/>')
+    }
+  } else {
+    xml = xml.replace(/(<worksheet[^>]*>)/, '$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>')
+  }
+
+  const pageMargins = '<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>'
+  const pageSetup = '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+
+  if (/<pageMargins[\s\S]*?\/>/.test(xml)) {
+    xml = xml.replace(/<pageMargins[\s\S]*?\/>/, `${pageMargins}${pageSetup}`)
+  } else {
+    xml = xml.replace(/<\/worksheet>$/, `${pageMargins}${pageSetup}</worksheet>`)
+  }
+
+  return xml
+}
+
+async function styleNyukoWorkbook(arrayBuffer: ArrayBuffer, mainRowCount: number, hasOtherRows: boolean): Promise<ArrayBuffer> {
+  const zip = await JSZip.loadAsync(arrayBuffer)
+  const sheetFile = zip.file('xl/worksheets/sheet1.xml')
+  if (!sheetFile) return arrayBuffer
+
+  let sheetXml = await sheetFile.async('string')
+  sheetXml = applyCellStyles(sheetXml, mainRowCount, hasOtherRows)
+  sheetXml = applyRowHeights(sheetXml, mainRowCount, hasOtherRows)
+  sheetXml = applySheetView(sheetXml)
+  sheetXml = applyPrintSettings(sheetXml)
+
+  zip.file('xl/styles.xml', buildNyukoStylesXml())
+  zip.file('xl/worksheets/sheet1.xml', sheetXml)
+
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' })
+}
+
+export async function makeNyukoXlsxBlob(rows: NyukoListRow[], otherRows: OtherPackingRow[] = []): Promise<Blob> {
   const data = buildNyukoSheetData(rows, otherRows)
   const worksheet = XLSX.utils.aoa_to_sheet(data)
-  worksheet['!cols'] = [
-    { wch: 22 },
-    { wch: 35 },
-    { wch: 8 },
-    { wch: 12 },
-    { wch: 45 },
-  ]
+  worksheet['!cols'] = buildNyukoColumnWidths(data)
 
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '入庫リスト')
   const arrayBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
-  return new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const styledArrayBuffer = await styleNyukoWorkbook(arrayBuffer, rows.length, otherRows.length > 0)
+
+  return new Blob([styledArrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 }
 
 function dataUrlToBase64(dataUrl: string): string {
@@ -73,7 +282,7 @@ function dataUrlToBase64(dataUrl: string): string {
 export async function makeZipBlob(result: ProcessResult): Promise<Blob> {
   const zip = new JSZip()
   zip.file('NE更新.csv', makeNeCsvBlob(result.neRows))
-  zip.file('入庫リスト.xlsx', makeNyukoXlsxBlob(result.nyukoRows, result.otherRows))
+  zip.file('入庫リスト.xlsx', await makeNyukoXlsxBlob(result.nyukoRows, result.otherRows))
 
   result.otherRows.forEach((row, index) => {
     if (!row.image) return

@@ -1413,9 +1413,10 @@ export default function NyukoApp() {
     }
   }
 
-  function downloadNyuko() {
+  async function downloadNyuko() {
     if (!result || reflectStatus.ne !== "done") return;
-    saveAs(makeNyukoXlsxBlob(result.nyukoRows, getEffectiveOtherRows()), "入庫リスト.xlsx");
+    const blob = await makeNyukoXlsxBlob(result.nyukoRows, getEffectiveOtherRows());
+    saveAs(blob, "入庫リスト.xlsx");
     updateReflectStatus("nyuko", "exported");
   }
 
