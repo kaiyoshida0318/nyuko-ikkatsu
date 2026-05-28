@@ -295,7 +295,6 @@ export async function parsePackingFiles(
     ) {
       const row = rows[rowIndex] ?? [];
       const note = String(row[noteColIndex] ?? "").trim();
-      if (!note) continue;
 
       const packingQuantity =
         packingColIndex >= 0 ? normalizeNumber(row[packingColIndex]) : null;
@@ -307,6 +306,11 @@ export async function parsePackingFiles(
         productInfoColIndex >= 0
           ? String(row[productInfoColIndex] ?? "").trim()
           : "";
+      const hasPackingRowData = Boolean(
+        note || productInfo || orderNo || itemNo || packingQuantity !== null,
+      );
+      if (!hasPackingRowData) continue;
+
       const packedGroupKey = `${orderNo || "order"}__${itemNo || `row${rowIndex}`}`;
 
       NOTE_PATTERN.lastIndex = 0;
