@@ -1,6 +1,6 @@
 import type { NeUpdateRow } from './types'
 
-export type NeNyukoReflectResult = {
+export type NeNyukoReflectSuccessResult = {
   ok: true
   dryRun: boolean
   total: number
@@ -12,6 +12,26 @@ export type NeNyukoReflectResult = {
   csvPreview?: string[]
   examples?: Array<{ syohin_code: string; zaiko_su: number; kataban: string }>
   message: string
+}
+
+export type NeNyukoReflectErrorResult = {
+  ok: false
+  code?: string
+  error?: string
+  message?: string
+  reauthUrl?: string
+}
+
+export type NeNyukoReflectResult = NeNyukoReflectSuccessResult | NeNyukoReflectErrorResult
+
+export class NeReauthRequiredError extends Error {
+  reauthUrl: string
+
+  constructor(message: string, reauthUrl: string) {
+    super(message)
+    this.name = 'NeReauthRequiredError'
+    this.reauthUrl = reauthUrl
+  }
 }
 
 function normalizeWorkerUrl(input: string | undefined): string {
@@ -31,20 +51,19 @@ export const embeddedNeSyncWorkerUrl = normalizeWorkerUrl(
   process.env.NEXT_PUBLIC_NE_SYNC_WORKER_URL,
 )
 
-function parseErrorMessage(responseText: string): string {
+function parseWorkerError(responseText: string): NeNyukoReflectErrorResult & { details?: string; hint?: string } {
   try {
-    const parsed = JSON.parse(responseText) as {
-      error?: string
-      message?: string
-      details?: string
-      hint?: string
-    }
-    return [parsed.error, parsed.message, parsed.details, parsed.hint]
-      .filter(Boolean)
-      .join(' / ') || responseText
+    const parsed = JSON.parse(responseText) as NeNyukoReflectErrorResult & { details?: string; hint?: string }
+    return parsed
   } catch {
-    return responseText
+    return { ok: false, error: responseText }
   }
+}
+
+function buildErrorMessage(parsed: NeNyukoReflectErrorResult & { details?: string; hint?: string }, fallback: string): string {
+  return [parsed.error, parsed.message, parsed.details, parsed.hint]
+    .filter(Boolean)
+    .join(' / ') || fallback
 }
 
 export function getNeSyncWorkerConfigError(): string | null {
@@ -91,13 +110,28 @@ export async function updateNextEngineByApi(
 
   const responseText = await response.text()
   if (!response.ok) {
-    const message = parseErrorMessage(responseText)
+    const parsed = parseWorkerError(responseText)
+    const message = buildErrorMessage(parsed, responseText)
+    if (parsed.code === 'NE_TOKEN_EXPIRED' && parsed.reauthUrl) {
+      throw new NeReauthRequiredError(message || 'NE認証の有効期限が切れています。NE認証をやり直してください。', parsed.reauthUrl)
+    }
     throw new Error(`NE API更新に失敗しました（${response.status}）: ${message}`)
   }
 
+  let parsed: NeNyukoReflectResult
   try {
-    return JSON.parse(responseText) as NeNyukoReflectResult
+    parsed = JSON.parse(responseText) as NeNyukoReflectResult
   } catch {
     throw new Error('NE API更新結果をJSONとして読み取れませんでした。')
   }
+
+  if (!parsed.ok) {
+    const message = buildErrorMessage(parsed, responseText)
+    if (parsed.code === 'NE_TOKEN_EXPIRED' && parsed.reauthUrl) {
+      throw new NeReauthRequiredError(message || 'NE認証の有効期限が切れています。NE認証をやり直してください。', parsed.reauthUrl)
+    }
+    throw new Error(message || 'NE API更新に失敗しました。')
+  }
+
+  return parsed
 }

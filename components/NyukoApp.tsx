@@ -17,7 +17,7 @@ import {
   makeNyukoXlsxBlob,
   makeZipBlob,
 } from "@/lib/formatter";
-import { updateNextEngineByApi } from "@/lib/neSyncWorker";
+import { NeReauthRequiredError, updateNextEngineByApi } from "@/lib/neSyncWorker";
 import { runNyukoProcess } from "@/lib/process";
 import { updateProductHubOrders } from "@/lib/productHub";
 import {
@@ -1080,6 +1080,7 @@ export default function NyukoApp() {
   const [activeTab, setActiveTab] = useState<PreviewTab>("extracted");
   const [reflectStatus, setReflectStatus] = useState<ReflectStatusMap>(initialReflectStatus);
   const [reflectError, setReflectError] = useState<string | null>(null);
+  const [neReauthUrl, setNeReauthUrl] = useState<string | null>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1366,6 +1367,7 @@ export default function NyukoApp() {
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
+    setNeReauthUrl(null);
   }
 
   function getEffectiveOtherRows() {
@@ -1401,12 +1403,18 @@ export default function NyukoApp() {
     }
 
     setReflectError(null);
+    setNeReauthUrl(null);
     updateReflectStatus("ne", "updating");
     try {
       await updateNextEngineByApi(productHubSettings.accessToken, result.neRows);
       updateReflectStatus("ne", "done");
     } catch (err) {
       updateReflectStatus("ne", "error");
+      if (err instanceof NeReauthRequiredError) {
+        setNeReauthUrl(err.reauthUrl);
+        setReflectError("NE認証の有効期限が切れています。NE認証をやり直してください。");
+        return;
+      }
       setReflectError(
         err instanceof Error ? err.message : "NE API更新中にエラーが発生しました。",
       );
@@ -1720,7 +1728,12 @@ export default function NyukoApp() {
 
           {reflectError && (
             <div className="reflect-error" role="alert">
-              {reflectError}
+              <span>{reflectError}</span>
+              {neReauthUrl && (
+                <a href={neReauthUrl} target="_blank" rel="noreferrer">
+                  NE認証をやり直す
+                </a>
+              )}
             </div>
           )}
 
