@@ -3899,3 +3899,11 @@ html[data-theme="dark"] .upload-run-grid > .drop-zone:hover,
 html[data-theme="dark"] .upload-run-grid > .drop-zone:focus-visible {
   border-color: rgba(139, 147, 255, 0.58);
 }
+
+.work-state-notice {
+  margin-top: 14px;
+}
+
+.reflect-reset-button {
+  flex: 0 0 auto;
+}

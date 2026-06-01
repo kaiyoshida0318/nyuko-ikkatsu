@@ -13,11 +13,11 @@ import {
 } from "react";
 import { saveAs } from "file-saver";
 import { detectFileRole } from "@/lib/fileRoles";
+import { makeNyukoXlsxBlob, makeZipBlob } from "@/lib/formatter";
 import {
-  makeNyukoXlsxBlob,
-  makeZipBlob,
-} from "@/lib/formatter";
-import { NeReauthRequiredError, updateNextEngineByApi } from "@/lib/neSyncWorker";
+  NeReauthRequiredError,
+  updateNextEngineByApi,
+} from "@/lib/neSyncWorker";
 import { runNyukoProcess } from "@/lib/process";
 import { updateProductHubOrders } from "@/lib/productHub";
 import {
@@ -40,8 +40,18 @@ import type {
 } from "@/lib/types";
 
 type PreviewTab = "extracted" | "other" | "ne" | "productDb" | "nyuko";
-type ReflectStatus = "pending" | "exported" | "updating" | "done" | "error" | "skipped";
-type ReflectStatusMap = { ne: ReflectStatus; productDb: ReflectStatus; nyuko: ReflectStatus };
+type ReflectStatus =
+  | "pending"
+  | "exported"
+  | "updating"
+  | "done"
+  | "error"
+  | "skipped";
+type ReflectStatusMap = {
+  ne: ReflectStatus;
+  productDb: ReflectStatus;
+  nyuko: ReflectStatus;
+};
 type UiTheme = "light" | "dark";
 
 type SecretQuestionResponse = {
@@ -66,10 +76,25 @@ type SecretLoginResponse = {
 };
 
 const UI_THEME_STORAGE_KEY = "nyuko-ikkatsu-ui-theme";
+const WORK_STATE_STORAGE_KEY = "nyuko-ikkatsu-work-state-v1";
+
+type SavedWorkState = {
+  version: 1;
+  savedAt: string;
+  result: ProcessResult;
+  manualRows: ExtractedRow[];
+  corrections: RowCorrectionMap;
+  activeTab: PreviewTab;
+  reflectStatus: ReflectStatusMap;
+  reflectError: string | null;
+  neReauthUrl: string | null;
+};
 
 function getInitialUiTheme(): UiTheme {
   if (typeof window === "undefined") return "light";
-  return window.localStorage.getItem(UI_THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  return window.localStorage.getItem(UI_THEME_STORAGE_KEY) === "dark"
+    ? "dark"
+    : "light";
 }
 
 const initialReflectStatus: ReflectStatusMap = {
@@ -86,9 +111,103 @@ function buildInitialReflectStatus(result: ProcessResult): ReflectStatusMap {
   };
 }
 
+function normalizeReflectStatus(status: unknown): ReflectStatus {
+  if (
+    status === "pending" ||
+    status === "exported" ||
+    status === "updating" ||
+    status === "done" ||
+    status === "error" ||
+    status === "skipped"
+  ) {
+    return status;
+  }
+  return "pending";
+}
+
+function normalizePreviewTab(tab: unknown): PreviewTab {
+  if (
+    tab === "extracted" ||
+    tab === "other" ||
+    tab === "ne" ||
+    tab === "productDb" ||
+    tab === "nyuko"
+  ) {
+    return tab;
+  }
+  return "extracted";
+}
+
+function readSavedWorkState(): SavedWorkState | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(WORK_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedWorkState>;
+    if (parsed.version !== 1 || !parsed.result) return null;
+
+    return {
+      version: 1,
+      savedAt:
+        typeof parsed.savedAt === "string"
+          ? parsed.savedAt
+          : new Date().toISOString(),
+      result: parsed.result as ProcessResult,
+      manualRows: Array.isArray(parsed.manualRows)
+        ? (parsed.manualRows as ExtractedRow[])
+        : [],
+      corrections: (parsed.corrections ?? {}) as RowCorrectionMap,
+      activeTab: normalizePreviewTab(parsed.activeTab),
+      reflectStatus: {
+        productDb: normalizeReflectStatus(parsed.reflectStatus?.productDb),
+        ne: normalizeReflectStatus(parsed.reflectStatus?.ne),
+        nyuko: normalizeReflectStatus(parsed.reflectStatus?.nyuko),
+      },
+      reflectError:
+        typeof parsed.reflectError === "string" ? parsed.reflectError : null,
+      neReauthUrl:
+        typeof parsed.neReauthUrl === "string" ? parsed.neReauthUrl : null,
+    };
+  } catch (err) {
+    console.warn("Saved work state restore failed:", err);
+    return null;
+  }
+}
+
+function saveWorkState(state: SavedWorkState): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    window.localStorage.setItem(WORK_STATE_STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch (err) {
+    console.warn("Saved work state save failed:", err);
+    return false;
+  }
+}
+
+function clearSavedWorkState() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(WORK_STATE_STORAGE_KEY);
+}
+
+function formatSavedAt(savedAt: string) {
+  const date = new Date(savedAt);
+  if (Number.isNaN(date.getTime())) return savedAt;
+  return date.toLocaleString("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 const assetBasePath =
   process.env.NODE_ENV === "production" ? "/nyuko-ikkatsu" : "";
-const AUTH_API_BASE_URL = String(process.env.NEXT_PUBLIC_AUTH_API_BASE_URL ?? "").replace(/\/+$/, "");
+const AUTH_API_BASE_URL = String(
+  process.env.NEXT_PUBLIC_AUTH_API_BASE_URL ?? "",
+).replace(/\/+$/, "");
 const emptyFiles: SelectedFiles = {
   packingFiles: [],
 };
@@ -100,7 +219,6 @@ function buildProductHubSettings(accessToken = ""): ProductHubSettings {
     accessToken,
   };
 }
-
 
 function clearNyukoSupabaseAuthStorage() {
   if (typeof window === "undefined") return;
@@ -163,7 +281,10 @@ function ProductHubSettingsPanel({
         <div>
           <p className="eyebrow">PRODUCT DB</p>
           <h2>商品DB連携</h2>
-          <p>Supabase Authでログイン中のアカウントを使って products を取得・更新します。</p>
+          <p>
+            Supabase Authでログイン中のアカウントを使って products
+            を取得・更新します。
+          </p>
         </div>
         <span
           className={`status-badge ${isReady ? "status-badge--good" : "status-badge--warn"}`}
@@ -173,32 +294,37 @@ function ProductHubSettingsPanel({
       </div>
 
       <div className="product-hub-status-grid">
-        <div className={`product-hub-status-item ${hasUrl ? "is-good" : "is-warn"}`}>
+        <div
+          className={`product-hub-status-item ${hasUrl ? "is-good" : "is-warn"}`}
+        >
           <span>Supabase URL</span>
           <strong>{hasUrl ? "埋め込み済み" : "未設定"}</strong>
         </div>
-        <div className={`product-hub-status-item ${hasAnonKey ? "is-good" : "is-warn"}`}>
+        <div
+          className={`product-hub-status-item ${hasAnonKey ? "is-good" : "is-warn"}`}
+        >
           <span>ANON KEY</span>
           <strong>{hasAnonKey ? "埋め込み済み" : "未設定"}</strong>
         </div>
-        <div className={`product-hub-status-item ${hasAccessToken ? "is-good" : "is-warn"}`}>
+        <div
+          className={`product-hub-status-item ${hasAccessToken ? "is-good" : "is-warn"}`}
+        >
           <span>ログイン</span>
-          <strong>{hasAccessToken ? userEmail || "ログイン済み" : "未ログイン"}</strong>
+          <strong>
+            {hasAccessToken ? userEmail || "ログイン済み" : "未ログイン"}
+          </strong>
         </div>
       </div>
 
       <p className="settings-note settings-note--compact">
-        URLとanon keyはビルド時の環境変数から読み込みます。ブラウザ上での手入力は不要です。
+        URLとanon
+        keyはビルド時の環境変数から読み込みます。ブラウザ上での手入力は不要です。
       </p>
     </div>
   );
 }
 
-function AuthShell({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function AuthShell({ children }: { children: ReactNode }) {
   return (
     <main className="auth-shell">
       <section className="auth-card auth-card--simple">
@@ -229,7 +355,9 @@ function LoginPanel() {
           method: "GET",
           cache: "no-store",
         });
-        const payload = (await response.json().catch(() => ({}))) as SecretQuestionResponse;
+        const payload = (await response
+          .json()
+          .catch(() => ({}))) as SecretQuestionResponse;
         if (!isMounted) return;
         if (response.ok && payload.ok) {
           setQuestion(payload.question || "秘密の質問");
@@ -256,7 +384,9 @@ function LoginPanel() {
       return;
     }
     if (!AUTH_API_BASE_URL) {
-      setLoginError("ログインAPIが未設定です。NEXT_PUBLIC_AUTH_API_BASE_URLを設定してください。");
+      setLoginError(
+        "ログインAPIが未設定です。NEXT_PUBLIC_AUTH_API_BASE_URLを設定してください。",
+      );
       return;
     }
     if (!answer.trim()) {
@@ -271,9 +401,16 @@ function LoginPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answer: answer.trim() }),
       });
-      const payload = (await response.json().catch(() => ({}))) as SecretLoginResponse;
+      const payload = (await response
+        .json()
+        .catch(() => ({}))) as SecretLoginResponse;
 
-      if (!response.ok || !payload.ok || !payload.session?.access_token || !payload.session.refresh_token) {
+      if (
+        !response.ok ||
+        !payload.ok ||
+        !payload.session?.access_token ||
+        !payload.session.refresh_token
+      ) {
         throw new Error(payload.error || "ログインに失敗しました。");
       }
 
@@ -284,7 +421,8 @@ function LoginPanel() {
       if (error) throw error;
       setAnswer("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "ログインに失敗しました。";
+      const message =
+        err instanceof Error ? err.message : "ログインに失敗しました。";
       setLoginError(
         message === "Failed to fetch"
           ? "ログインAPIに接続できませんでした。NEXT_PUBLIC_AUTH_API_BASE_URL と Worker のCORS設定を確認してください。"
@@ -312,7 +450,11 @@ function LoginPanel() {
 
         {loginError && <p className="auth-error">{loginError}</p>}
 
-        <button className="primary-button auth-submit" type="submit" disabled={isSubmitting}>
+        <button
+          className="primary-button auth-submit"
+          type="submit"
+          disabled={isSubmitting}
+        >
           {isSubmitting ? "ログイン中…" : "ログイン"}
         </button>
       </form>
@@ -334,7 +476,6 @@ function ConfigErrorPanel({ message }: { message: string }) {
     </AuthShell>
   );
 }
-
 
 function SettingsPanel({
   theme,
@@ -505,9 +646,7 @@ function getProductDbKeys(record: ProductHubRecord | undefined) {
     .map((order, index) =>
       order ? { label: `オーダー${index + 1}`, value: order } : null,
     )
-    .filter((item): item is { label: string; value: string } =>
-      Boolean(item),
-    );
+    .filter((item): item is { label: string; value: string } => Boolean(item));
 }
 
 const OTHER_CATEGORY_OPTIONS = ["新商品", "試し買い", "備品"] as const;
@@ -534,12 +673,18 @@ function OtherRowsTable({
       <div className="other-table-title">
         <div>
           <h3>その他</h3>
-          <p>備考に「●商品コード▲mmdd-数量」がない行です。分類・品名・備考を入力して、入庫リストの末尾にその他として追加します。</p>
+          <p>
+            備考に「●商品コード▲mmdd-数量」がない行です。分類・品名・備考を入力して、入庫リストの末尾にその他として追加します。
+          </p>
         </div>
         <Pill tone="warn">{rows.length}行</Pill>
       </div>
 
-      <div className="warning-fix-table-wrap" role="region" aria-label="その他テーブル">
+      <div
+        className="warning-fix-table-wrap"
+        role="region"
+        aria-label="その他テーブル"
+      >
         <table className="warning-fix-table other-fix-table">
           <thead>
             <tr>
@@ -556,8 +701,16 @@ function OtherRowsTable({
           <tbody>
             {rows.map((row) => {
               const correction = corrections[row.rowId];
-              const category = getCorrectionValue(correction, "category", row.category);
-              const itemName = getCorrectionValue(correction, "itemName", row.itemName);
+              const category = getCorrectionValue(
+                correction,
+                "category",
+                row.category,
+              );
+              const itemName = getCorrectionValue(
+                correction,
+                "itemName",
+                row.itemName,
+              );
               const note = getCorrectionValue(correction, "note", row.note);
               const changed =
                 category !== row.category ||
@@ -565,7 +718,10 @@ function OtherRowsTable({
                 note !== row.note;
 
               return (
-                <tr className={`other-fix-row ${changed ? "is-edited" : ""}`} key={row.rowId}>
+                <tr
+                  className={`other-fix-row ${changed ? "is-edited" : ""}`}
+                  key={row.rowId}
+                >
                   <td className="other-image-cell">
                     {row.image ? (
                       <img src={row.image.dataUrl} alt="その他商品画像" />
@@ -667,7 +823,10 @@ function ExtractedRowsEditPanel({
   isProcessing: boolean;
 }) {
   const rows = useMemo(
-    () => buildEditableRows(result).filter(({ row }) => !corrections[row.rowId]?.deleted),
+    () =>
+      buildEditableRows(result).filter(
+        ({ row }) => !corrections[row.rowId]?.deleted,
+      ),
     [result, corrections],
   );
   const otherRows = useMemo(
@@ -681,9 +840,12 @@ function ExtractedRowsEditPanel({
     }
     return map;
   }, [result.productHubRecords]);
-  const [manualDraft, setManualDraft] = useState<ManualExtractedRowDraft>(emptyManualDraft);
+  const [manualDraft, setManualDraft] =
+    useState<ManualExtractedRowDraft>(emptyManualDraft);
   const normalizedManualMmdd = manualDraft.mmdd.replace(/\D/g, "").slice(0, 4);
-  const normalizedManualQuantity = manualDraft.quantity.replace(/,/g, "").trim();
+  const normalizedManualQuantity = manualDraft.quantity
+    .replace(/,/g, "")
+    .trim();
   const canAddManualRow =
     manualDraft.productCode.trim().length > 0 &&
     normalizedManualMmdd.length === 4 &&
@@ -703,7 +865,9 @@ function ExtractedRowsEditPanel({
 
   if (rows.length === 0 && otherRows.length === 0) return null;
 
-  const warningRowCount = rows.filter((item) => item.warningLabels.length > 0).length;
+  const warningRowCount = rows.filter(
+    (item) => item.warningLabels.length > 0,
+  ).length;
 
   return (
     <section className="warning-fix-panel warning-fix-panel--table">
@@ -712,18 +876,24 @@ function ExtractedRowsEditPanel({
           <p className="eyebrow">EDIT</p>
           <h2>商品一覧/修正</h2>
           <p>
-            商品名・オーダー状況はSupabase productsから取得します。配送依頼書にない商品も手入力で追加できます。
+            商品名・オーダー状況はSupabase
+            productsから取得します。配送依頼書にない商品も手入力で追加できます。
           </p>
         </div>
-        <Pill tone={warningRowCount > 0 || otherRows.length > 0 ? "warn" : "good"}>
-          商品{rows.length}行 / その他{otherRows.length}行 / 警告{warningRowCount}行
+        <Pill
+          tone={warningRowCount > 0 || otherRows.length > 0 ? "warn" : "good"}
+        >
+          商品{rows.length}行 / その他{otherRows.length}行 / 警告
+          {warningRowCount}行
         </Pill>
       </div>
 
       <div className="manual-row-add-card" aria-label="商品行を手入力で追加">
         <div className="manual-row-add-copy">
           <strong>商品行を手入力で追加</strong>
-          <span>配送依頼書に載っていない商品を、商品コード・オーダー日・オーダー数で追加できます。</span>
+          <span>
+            配送依頼書に載っていない商品を、商品コード・オーダー日・オーダー数で追加できます。
+          </span>
         </div>
         <div className="manual-row-add-fields">
           <label>
@@ -733,7 +903,10 @@ function ExtractedRowsEditPanel({
               value={manualDraft.productCode}
               placeholder="例: sample-01"
               onChange={(event) =>
-                setManualDraft((current) => ({ ...current, productCode: event.target.value }))
+                setManualDraft((current) => ({
+                  ...current,
+                  productCode: event.target.value,
+                }))
               }
             />
           </label>
@@ -746,7 +919,10 @@ function ExtractedRowsEditPanel({
               value={manualDraft.mmdd}
               placeholder="0423"
               onChange={(event) =>
-                setManualDraft((current) => ({ ...current, mmdd: event.target.value }))
+                setManualDraft((current) => ({
+                  ...current,
+                  mmdd: event.target.value,
+                }))
               }
             />
           </label>
@@ -758,7 +934,10 @@ function ExtractedRowsEditPanel({
               value={manualDraft.quantity}
               placeholder="20"
               onChange={(event) =>
-                setManualDraft((current) => ({ ...current, quantity: event.target.value }))
+                setManualDraft((current) => ({
+                  ...current,
+                  quantity: event.target.value,
+                }))
               }
             />
           </label>
@@ -774,7 +953,11 @@ function ExtractedRowsEditPanel({
       </div>
 
       {rows.length > 0 && (
-        <div className="warning-fix-table-wrap" role="region" aria-label="商品一覧修正テーブル">
+        <div
+          className="warning-fix-table-wrap"
+          role="region"
+          aria-label="商品一覧修正テーブル"
+        >
           <table className="warning-fix-table">
             <thead>
               <tr className="warning-fix-group-row">
@@ -782,10 +965,16 @@ function ExtractedRowsEditPanel({
                 <th rowSpan={2}>商品コード</th>
                 <th rowSpan={2}>商品名</th>
                 <th rowSpan={2}>商品DBオーダー状況</th>
-                <th className="warning-group-header warning-group-header--delivery" colSpan={3}>
+                <th
+                  className="warning-group-header warning-group-header--delivery"
+                  colSpan={3}
+                >
                   配送依頼書
                 </th>
-                <th className="warning-group-header warning-group-header--manual" colSpan={4}>
+                <th
+                  className="warning-group-header warning-group-header--manual"
+                  colSpan={4}
+                >
                   手動修正
                 </th>
                 <th rowSpan={2}>操作</th>
@@ -831,9 +1020,13 @@ function ExtractedRowsEditPanel({
                     key={row.rowId}
                   >
                     <td className="warning-status-cell">
-                      <div className={`warning-labels ${hasWarning ? "" : "warning-labels--ok"}`}>
+                      <div
+                        className={`warning-labels ${hasWarning ? "" : "warning-labels--ok"}`}
+                      >
                         {hasWarning ? (
-                          warningLabels.map((label) => <span key={label}>{label}</span>)
+                          warningLabels.map((label) => (
+                            <span key={label}>{label}</span>
+                          ))
                         ) : (
                           <span>OK</span>
                         )}
@@ -854,7 +1047,9 @@ function ExtractedRowsEditPanel({
                       {productDbKeys.length > 0 ? (
                         <div className="warning-db-key-list warning-db-key-list--table">
                           {productDbKeys.map((item) => (
-                            <span key={`${row.rowId}-${item.label}-${item.value}`}>
+                            <span
+                              key={`${row.rowId}-${item.label}-${item.value}`}
+                            >
                               <small>{item.label}</small>
                               <strong>{item.value}</strong>
                             </span>
@@ -881,7 +1076,9 @@ function ExtractedRowsEditPanel({
                         type="text"
                         value={productCode}
                         onChange={(event) =>
-                          onChange(row.rowId, { productCode: event.target.value })
+                          onChange(row.rowId, {
+                            productCode: event.target.value,
+                          })
                         }
                       />
                     </td>
@@ -1083,10 +1280,14 @@ export default function NyukoApp() {
   const [manualRows, setManualRows] = useState<ExtractedRow[]>([]);
   const [corrections, setCorrections] = useState<RowCorrectionMap>({});
   const [activeTab, setActiveTab] = useState<PreviewTab>("extracted");
-  const [reflectStatus, setReflectStatus] = useState<ReflectStatusMap>(initialReflectStatus);
+  const [reflectStatus, setReflectStatus] =
+    useState<ReflectStatusMap>(initialReflectStatus);
   const [reflectError, setReflectError] = useState<string | null>(null);
   const [neReauthUrl, setNeReauthUrl] = useState<string | null>(null);
+  const [workStateNotice, setWorkStateNotice] = useState<string | null>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
+  const hasCheckedSavedWorkStateRef = useRef(false);
+  const isLoggedIn = Boolean(productHubSettings.accessToken);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1127,6 +1328,69 @@ export default function NyukoApp() {
     };
   }, []);
 
+  useEffect(() => {
+    if (authLoading || !isLoggedIn || hasCheckedSavedWorkStateRef.current)
+      return;
+    hasCheckedSavedWorkStateRef.current = true;
+
+    const savedState = readSavedWorkState();
+    if (!savedState) return;
+
+    const shouldRestore = window.confirm(
+      `前回の作業途中データがあります。復元しますか？
+保存日時: ${formatSavedAt(savedState.savedAt)}
+
+復元しない場合、前回の作業状態は破棄されます。`,
+    );
+
+    if (!shouldRestore) {
+      clearSavedWorkState();
+      return;
+    }
+
+    setResult(savedState.result);
+    setManualRows(savedState.manualRows);
+    setCorrections(savedState.corrections);
+    setActiveTab(savedState.activeTab);
+    setReflectStatus(savedState.reflectStatus);
+    setReflectError(savedState.reflectError);
+    setNeReauthUrl(savedState.neReauthUrl);
+    setError(null);
+    setWorkStateNotice(
+      "前回の作業状態を復元しました。必要ならこのまま更新・出力を続行できます。",
+    );
+  }, [authLoading, isLoggedIn]);
+
+  useEffect(() => {
+    if (!result) return;
+
+    const saved = saveWorkState({
+      version: 1,
+      savedAt: new Date().toISOString(),
+      result,
+      manualRows,
+      corrections,
+      activeTab,
+      reflectStatus,
+      reflectError,
+      neReauthUrl,
+    });
+
+    if (!saved) {
+      setWorkStateNotice(
+        "作業状態の自動保存に失敗しました。データ量が大きい可能性があります。",
+      );
+    }
+  }, [
+    activeTab,
+    corrections,
+    manualRows,
+    neReauthUrl,
+    reflectError,
+    reflectStatus,
+    result,
+  ]);
+
   async function handleLogout() {
     setError(null);
     setResult(null);
@@ -1134,6 +1398,8 @@ export default function NyukoApp() {
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
+    setWorkStateNotice(null);
+    clearSavedWorkState();
     setIsProductHubPanelOpen(false);
     setIsSettingsPanelOpen(false);
 
@@ -1157,7 +1423,6 @@ export default function NyukoApp() {
   }
 
   const configError = getSupabaseConfigError();
-  const isLoggedIn = Boolean(productHubSettings.accessToken);
 
   const productHubReady = Boolean(
     productHubSettings.apiUrl.trim() &&
@@ -1167,8 +1432,6 @@ export default function NyukoApp() {
   const canRun =
     files.packingFiles.length > 0 && productHubReady && !isProcessing;
   const selectedFileCount = files.packingFiles.length;
-
-
 
   function openBulkFilePicker() {
     bulkInputRef.current?.click();
@@ -1202,6 +1465,8 @@ export default function NyukoApp() {
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
+    setWorkStateNotice(null);
+    clearSavedWorkState();
     setFiles((current) => mergeFiles(current, incoming));
     const unknown = incoming.filter(
       (file) => detectFileRole(file) === "unknown",
@@ -1229,6 +1494,8 @@ export default function NyukoApp() {
     setCorrections({});
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
+    setWorkStateNotice(null);
+    clearSavedWorkState();
     setFiles((current) => ({
       packingFiles: current.packingFiles.filter(
         (_, index) => index !== targetIndex,
@@ -1332,8 +1599,15 @@ export default function NyukoApp() {
     const productCode = draft.productCode.trim();
     const mmdd = draft.mmdd.replace(/\D/g, "").slice(0, 4);
     const quantity = Number(draft.quantity.replace(/,/g, "").trim());
-    if (!productCode || mmdd.length !== 4 || !Number.isFinite(quantity) || quantity <= 0) {
-      setError("手入力行は、商品コード・4桁のオーダー日・1以上のオーダー数を入力してください。");
+    if (
+      !productCode ||
+      mmdd.length !== 4 ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0
+    ) {
+      setError(
+        "手入力行は、商品コード・4桁のオーダー日・1以上のオーダー数を入力してください。",
+      );
       return;
     }
 
@@ -1373,6 +1647,16 @@ export default function NyukoApp() {
     setReflectStatus(initialReflectStatus);
     setReflectError(null);
     setNeReauthUrl(null);
+    setWorkStateNotice(null);
+    clearSavedWorkState();
+  }
+
+  function resetCompletedWork() {
+    const shouldReset = window.confirm(
+      "今回の入庫作業をリセットしますか？\n保存済みの作業状態も削除されます。",
+    );
+    if (!shouldReset) return;
+    clearAll();
   }
 
   function getEffectiveOtherRows() {
@@ -1380,26 +1664,37 @@ export default function NyukoApp() {
     return result.otherRows.flatMap((row) => {
       const correction = corrections[row.rowId];
       if (correction?.deleted) return [];
-      return [{
-        ...row,
-        category: correction?.category ?? row.category,
-        itemName: correction?.itemName ?? row.itemName,
-        note: correction?.note ?? row.note,
-      }];
+      return [
+        {
+          ...row,
+          category: correction?.category ?? row.category,
+          itemName: correction?.itemName ?? row.itemName,
+          note: correction?.note ?? row.note,
+        },
+      ];
     });
   }
 
-  function updateReflectStatus(key: keyof ReflectStatusMap, status: ReflectStatus) {
+  function updateReflectStatus(
+    key: keyof ReflectStatusMap,
+    status: ReflectStatus,
+  ) {
     setReflectStatus((current) => ({ ...current, [key]: status }));
   }
 
   function skipReflectStep(key: "productDb" | "ne") {
-    if (!result || reflectStatus[key] === "updating" || isReflectStepPassed(reflectStatus[key])) return;
+    if (
+      !result ||
+      reflectStatus[key] === "updating" ||
+      isReflectStepPassed(reflectStatus[key])
+    )
+      return;
 
     const label = key === "productDb" ? "商品DB更新" : "NE更新";
-    const detail = key === "productDb"
-      ? "商品DBのorder_memo/rakumart_urlは更新されませんが、次のNE更新に進めます。"
-      : "NEの商品マスタは更新されませんが、入庫リスト出力に進めます。";
+    const detail =
+      key === "productDb"
+        ? "商品DBのorder_memo/rakumart_urlは更新されませんが、次のNE更新に進めます。"
+        : "NEの商品マスタは更新されませんが、入庫リスト出力に進めます。";
 
     const shouldSkip = window.confirm(`${label}をスキップしますか？
 ${detail}`);
@@ -1410,15 +1705,14 @@ ${detail}`);
     updateReflectStatus(key, "skipped");
   }
 
-  function setNyukoDone(isDone: boolean) {
-    setReflectStatus((current) => ({
-      ...current,
-      nyuko: isDone ? "done" : "exported",
-    }));
-  }
-
   async function updateNeByApi() {
-    if (!result || !isReflectStepPassed(reflectStatus.productDb) || isReflectStepPassed(reflectStatus.ne) || reflectStatus.ne === "updating") return;
+    if (
+      !result ||
+      !isReflectStepPassed(reflectStatus.productDb) ||
+      isReflectStepPassed(reflectStatus.ne) ||
+      reflectStatus.ne === "updating"
+    )
+      return;
     if (result.neRows.length === 0) {
       updateReflectStatus("ne", "done");
       return;
@@ -1428,38 +1722,56 @@ ${detail}`);
     setNeReauthUrl(null);
     updateReflectStatus("ne", "updating");
     try {
-      await updateNextEngineByApi(productHubSettings.accessToken, result.neRows);
+      await updateNextEngineByApi(
+        productHubSettings.accessToken,
+        result.neRows,
+      );
       updateReflectStatus("ne", "done");
     } catch (err) {
       updateReflectStatus("ne", "error");
       if (err instanceof NeReauthRequiredError) {
         setNeReauthUrl(err.reauthUrl);
-        setReflectError("NE認証の有効期限が切れています。NE認証をやり直してください。");
+        setReflectError(
+          "NE認証の有効期限が切れています。NE認証をやり直してください。",
+        );
         return;
       }
       setReflectError(
-        err instanceof Error ? err.message : "NE API更新中にエラーが発生しました。",
+        err instanceof Error
+          ? err.message
+          : "NE API更新中にエラーが発生しました。",
       );
     }
   }
 
   async function downloadNyuko() {
     if (!result || !isReflectStepPassed(reflectStatus.ne)) return;
-    const blob = await makeNyukoXlsxBlob(result.nyukoRows, getEffectiveOtherRows());
+    const blob = await makeNyukoXlsxBlob(
+      result.nyukoRows,
+      getEffectiveOtherRows(),
+    );
     saveAs(blob, "入庫リスト.xlsx");
     updateReflectStatus("nyuko", "exported");
   }
 
   async function downloadZip() {
     if (!result) return;
-    const blob = await makeZipBlob({ ...result, otherRows: getEffectiveOtherRows() });
+    const blob = await makeZipBlob({
+      ...result,
+      otherRows: getEffectiveOtherRows(),
+    });
     saveAs(blob, "入庫一括_出力.zip");
     updateReflectStatus("ne", "exported");
     updateReflectStatus("nyuko", "exported");
   }
 
   async function updateProductDb() {
-    if (!result || isReflectStepPassed(reflectStatus.productDb) || reflectStatus.productDb === "updating") return;
+    if (
+      !result ||
+      isReflectStepPassed(reflectStatus.productDb) ||
+      reflectStatus.productDb === "updating"
+    )
+      return;
     if (result.productDbUpdateRows.length === 0) {
       updateReflectStatus("productDb", "done");
       return;
@@ -1467,12 +1779,17 @@ ${detail}`);
     setReflectError(null);
     updateReflectStatus("productDb", "updating");
     try {
-      await updateProductHubOrders(productHubSettings, result.productDbUpdateRows);
+      await updateProductHubOrders(
+        productHubSettings,
+        result.productDbUpdateRows,
+      );
       updateReflectStatus("productDb", "done");
     } catch (err) {
       updateReflectStatus("productDb", "error");
       setReflectError(
-        err instanceof Error ? err.message : "商品DB更新中にエラーが発生しました。",
+        err instanceof Error
+          ? err.message
+          : "商品DB更新中にエラーが発生しました。",
       );
     }
   }
@@ -1508,9 +1825,11 @@ ${detail}`);
     canOperateNe &&
     reflectStatus.ne !== "updating" &&
     !isReflectStepPassed(reflectStatus.ne);
-  const canOperateNyuko = Boolean(result) && isProductDbComplete && isNeComplete;
-  const canCompleteNyuko =
-    canOperateNyuko && (reflectStatus.nyuko === "exported" || reflectStatus.nyuko === "done");
+  const canOperateNyuko =
+    Boolean(result) && isProductDbComplete && isNeComplete;
+  const canResetWork =
+    Boolean(result) &&
+    (reflectStatus.nyuko === "exported" || reflectStatus.nyuko === "done");
 
   if (configError) {
     return <ConfigErrorPanel message={configError} />;
@@ -1572,7 +1891,9 @@ ${detail}`);
             </button>
             <div className="auth-user-chip" title={authEmail}>
               <span>{authEmail}</span>
-              <button type="button" onClick={handleLogout}>ログアウト</button>
+              <button type="button" onClick={handleLogout}>
+                ログアウト
+              </button>
             </div>
           </div>
 
@@ -1637,7 +1958,9 @@ ${detail}`);
           </div>
         </section>
 
-        <section className={`action-panel ${selectedFileCount > 0 ? "action-panel--has-selection" : ""}`}>
+        <section
+          className={`action-panel ${selectedFileCount > 0 ? "action-panel--has-selection" : ""}`}
+        >
           <div className="action-panel-main">
             <p className="eyebrow">RUN</p>
             <h2>処理実行</h2>
@@ -1651,7 +1974,10 @@ ${detail}`);
             </div>
 
             {files.packingFiles.length > 0 && (
-              <ul className="file-list action-file-list" aria-label="処理対象ファイル">
+              <ul
+                className="file-list action-file-list"
+                aria-label="処理対象ファイル"
+              >
                 {files.packingFiles.map((file, index) => (
                   <li key={`${file.name}-${file.size}-${index}`}>
                     <div className="file-row-main">
@@ -1676,7 +2002,9 @@ ${detail}`);
               className="secondary-button"
               type="button"
               onClick={clearAll}
-              disabled={selectedFileCount === 0 && unknownFiles.length === 0 && !result}
+              disabled={
+                selectedFileCount === 0 && unknownFiles.length === 0 && !result
+              }
             >
               選択中をクリア
             </button>
@@ -1691,6 +2019,13 @@ ${detail}`);
           </div>
         </section>
       </div>
+
+      {workStateNotice && (
+        <section className="notice notice--good work-state-notice">
+          <strong>作業状態</strong>
+          <span>{workStateNotice}</span>
+        </section>
+      )}
 
       {unknownFiles.length > 0 && (
         <section className="notice notice--warn">
@@ -1720,7 +2055,8 @@ ${detail}`);
         <section className="notice notice--warn">
           <strong>商品DB連携が未設定です</strong>
           <span>
-            Supabase Authでログインし、ビルド時に Supabase URL と ANON KEY が設定されている必要があります。
+            Supabase Authでログインし、ビルド時に Supabase URL と ANON KEY
+            が設定されている必要があります。
           </span>
         </section>
       )}
@@ -1731,8 +2067,6 @@ ${detail}`);
           <span>{error}</span>
         </section>
       )}
-
-
 
       {result && (
         <ExtractedRowsEditPanel
@@ -1754,6 +2088,15 @@ ${detail}`);
               <p className="eyebrow">REFLECT</p>
               <h2>入庫反映</h2>
             </div>
+            {canResetWork && (
+              <button
+                className="secondary-button reflect-reset-button"
+                type="button"
+                onClick={resetCompletedWork}
+              >
+                作業をリセット
+              </button>
+            )}
           </div>
 
           {reflectError && (
@@ -1774,7 +2117,9 @@ ${detail}`);
                   <span>1</span>
                   <h3>商品DB更新</h3>
                 </div>
-                <span className={`reflect-status reflect-status--${reflectStatus.productDb}`}>
+                <span
+                  className={`reflect-status reflect-status--${reflectStatus.productDb}`}
+                >
                   {reflectStatusLabel(reflectStatus.productDb)}
                 </span>
               </div>
@@ -1804,22 +2149,33 @@ ${detail}`);
                   スキップ
                 </button>
               </div>
-              <small>入庫済みの order_memo と対応する rakumart_url を削除し、残りを左詰めします。</small>
+              <small>
+                入庫済みの order_memo と対応する rakumart_url
+                を削除し、残りを左詰めします。
+              </small>
             </article>
 
-            <article className={`reflect-card ${canOperateNe ? "reflect-card--active" : "reflect-card--locked"}`}>
+            <article
+              className={`reflect-card ${canOperateNe ? "reflect-card--active" : "reflect-card--locked"}`}
+            >
               <div className="reflect-card-head">
                 <div className="reflect-step-title">
                   <span>2</span>
                   <h3>NE更新</h3>
                 </div>
-                <span className={`reflect-status reflect-status--${reflectStatus.ne}`}>
+                <span
+                  className={`reflect-status reflect-status--${reflectStatus.ne}`}
+                >
                   {reflectStatusLabel(reflectStatus.ne)}
                 </span>
               </div>
               <strong>{result.neRows.length}件</strong>
               <div className="reflect-actions">
-                <button type="button" onClick={updateNeByApi} disabled={!canUpdateNe}>
+                <button
+                  type="button"
+                  onClick={updateNeByApi}
+                  disabled={!canUpdateNe}
+                >
                   {reflectStatus.ne === "updating"
                     ? "NE更新中…"
                     : reflectStatus.ne === "done"
@@ -1839,34 +2195,50 @@ ${detail}`);
                   スキップ
                 </button>
               </div>
-              <small>NE商品マスタアップロードAPIへ直接送信します。CSV出力とNE画面での手動アップロードは不要です。</small>
-              {!canOperateNe && <small>商品DB更新が完了またはスキップされると操作できます。</small>}
+              <small>
+                NE商品マスタアップロードAPIへ直接送信します。CSV出力とNE画面での手動アップロードは不要です。
+              </small>
+              {!canOperateNe && (
+                <small>
+                  商品DB更新が完了またはスキップされると操作できます。
+                </small>
+              )}
             </article>
 
-            <article className={`reflect-card ${canOperateNyuko ? "reflect-card--active" : "reflect-card--locked"}`}>
+            <article
+              className={`reflect-card ${canOperateNyuko ? "reflect-card--active" : "reflect-card--locked"}`}
+            >
               <div className="reflect-card-head">
                 <div className="reflect-step-title">
                   <span>3</span>
                   <h3>入庫リスト出力</h3>
                 </div>
-                <span className={`reflect-status reflect-status--${reflectStatus.nyuko}`}>
+                <span
+                  className={`reflect-status reflect-status--${reflectStatus.nyuko}`}
+                >
                   {reflectStatusLabel(reflectStatus.nyuko)}
                 </span>
               </div>
-              <strong>{result.nyukoRows.length + getEffectiveOtherRows().length}行</strong>
-              <button type="button" onClick={downloadNyuko} disabled={!canOperateNyuko}>
-                入庫リスト.xlsx 出力
+              <strong>
+                {result.nyukoRows.length + getEffectiveOtherRows().length}行
+              </strong>
+              <button
+                type="button"
+                onClick={downloadNyuko}
+                disabled={!canOperateNyuko}
+              >
+                {reflectStatus.nyuko === "exported" ||
+                reflectStatus.nyuko === "done"
+                  ? "入庫リスト.xlsx 再出力"
+                  : "入庫リスト.xlsx 出力"}
               </button>
-              <label className={`reflect-check ${canCompleteNyuko ? "" : "is-disabled"}`}>
-                <input
-                  type="checkbox"
-                  checked={reflectStatus.nyuko === "done"}
-                  disabled={!canCompleteNyuko}
-                  onChange={(event) => setNyukoDone(event.target.checked)}
-                />
-                出力完了
-              </label>
-              {!canOperateNyuko && <small>NE更新が完了またはスキップされると出力できます。</small>}
+              {(reflectStatus.nyuko === "exported" ||
+                reflectStatus.nyuko === "done") && (
+                <small>出力済みです。必要なら再出力できます。</small>
+              )}
+              {!canOperateNyuko && (
+                <small>NE更新が完了またはスキップされると出力できます。</small>
+              )}
             </article>
           </div>
         </section>
@@ -1907,4 +2279,3 @@ ${detail}`);
     </main>
   );
 }
-
