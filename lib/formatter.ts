@@ -62,6 +62,11 @@ function padSheetRow(row: unknown[]): unknown[] {
   return Array.from({ length: NYUKO_COLUMN_COUNT }, (_, index) => row[index] ?? '')
 }
 
+function sanitizeExcelCellValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+}
+
 function buildNyukoSheetData(rows: NyukoListRow[], otherRows: OtherPackingRow[]): unknown[][] {
   const sortedRows = [...rows].sort(compareNyukoRows)
   const data: unknown[][] = [
@@ -84,7 +89,7 @@ function buildNyukoSheetData(rows: NyukoListRow[], otherRows: OtherPackingRow[])
     }
   }
 
-  return data.map(padSheetRow)
+  return data.map((row) => padSheetRow(row).map(sanitizeExcelCellValue))
 }
 
 function getDisplayWidth(value: unknown): number {
@@ -186,12 +191,14 @@ function getNyukoStyleIndex(cellRef: string, mainRowCount: number, hasOtherRows:
 }
 
 function applyCellStyles(sheetXml: string, mainRowCount: number, hasOtherRows: boolean): string {
-  return sheetXml.replace(/<c\b([^>]*\br="([^"]+)"[^>]*)>/g, (match, attributes: string, cellRef: string) => {
+  return sheetXml.replace(/<c\b([^>]*\br="([^"]+)"[^>]*?)(\/?)>/g, (match, attributes: string, cellRef: string, selfClosing: string) => {
     const styleIndex = getNyukoStyleIndex(cellRef, mainRowCount, hasOtherRows)
-    if (/\bs="\d+"/.test(attributes)) {
-      return `<c${attributes.replace(/\bs="\d+"/, `s="${styleIndex}"`)}>`
-    }
-    return `<c${attributes} s="${styleIndex}">`
+    const cleanedAttributes = attributes.replace(/\s*\/\s*$/, '')
+    const styledAttributes = /\bs="\d+"/.test(cleanedAttributes)
+      ? cleanedAttributes.replace(/\bs="\d+"/, `s="${styleIndex}"`)
+      : `${cleanedAttributes} s="${styleIndex}"`
+
+    return `<c${styledAttributes}${selfClosing ? '/>' : '>'}`
   })
 }
 
@@ -199,14 +206,25 @@ function applyRowHeights(sheetXml: string, mainRowCount: number, hasOtherRows: b
   const otherTitleRow = mainRowCount + 3
   const otherHeaderRow = mainRowCount + 4
 
-  return sheetXml.replace(/<row\b([^>]*\br="(\d+)"[^>]*)>/g, (match, attributes: string, rowText: string) => {
+  return sheetXml.replace(/<row\b([^>]*\br="(\d+)"[^>]*?)(\/?)>/g, (match, attributes: string, rowText: string, selfClosing: string) => {
     const rowNumber = Number(rowText)
     const height = rowNumber === 1 || (hasOtherRows && rowNumber === otherHeaderRow) ? 24 : hasOtherRows && rowNumber === otherTitleRow ? 24 : 22
     const withoutHeight = attributes
+      .replace(/\s*\/\s*$/, '')
       .replace(/\sht="[^"]*"/g, '')
       .replace(/\scustomHeight="[^"]*"/g, '')
-    return `<row${withoutHeight} ht="${height}" customHeight="1">`
+    return `<row${withoutHeight} ht="${height}" customHeight="1"${selfClosing ? '/>' : '>'}`
   })
+}
+
+function insertWorksheetChildAfter(xml: string, childXml: string, markerRegex: RegExp): string {
+  const match = xml.match(markerRegex)
+  if (match?.index !== undefined) {
+    const insertPosition = match.index + match[0].length
+    return `${xml.slice(0, insertPosition)}${childXml}${xml.slice(insertPosition)}`
+  }
+
+  return xml.replace(/(<worksheet[^>]*>)/, `$1${childXml}`)
 }
 
 function applySheetView(sheetXml: string): string {
@@ -216,7 +234,7 @@ function applySheetView(sheetXml: string): string {
     return sheetXml.replace(/<sheetViews>[\s\S]*?<\/sheetViews>/, sheetViewXml)
   }
 
-  return sheetXml.replace(/(<worksheet[^>]*>)/, `$1${sheetViewXml}`)
+  return insertWorksheetChildAfter(sheetXml, sheetViewXml, /<dimension\b[^>]*\/>/)
 }
 
 function applyPrintSettings(sheetXml: string): string {
@@ -235,13 +253,12 @@ function applyPrintSettings(sheetXml: string): string {
   const pageMargins = '<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>'
   const pageSetup = '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
 
-  if (/<pageMargins[\s\S]*?\/>/.test(xml)) {
-    xml = xml.replace(/<pageMargins[\s\S]*?\/>/, `${pageMargins}${pageSetup}`)
-  } else {
-    xml = xml.replace(/<\/worksheet>$/, `${pageMargins}${pageSetup}</worksheet>`)
-  }
+  xml = xml
+    .replace(/<pageMargins[\s\S]*?\/>/g, '')
+    .replace(/<pageSetup[\s\S]*?\/>/g, '')
 
-  return xml
+  const printSettingsXml = `${pageMargins}${pageSetup}`
+  return xml.replace(/<\/worksheet>$/, `${printSettingsXml}</worksheet>`)
 }
 
 async function styleNyukoWorkbook(arrayBuffer: ArrayBuffer, mainRowCount: number, hasOtherRows: boolean): Promise<ArrayBuffer> {
