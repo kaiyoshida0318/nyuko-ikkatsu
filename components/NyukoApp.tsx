@@ -40,7 +40,7 @@ import type {
 } from "@/lib/types";
 
 type PreviewTab = "extracted" | "other" | "ne" | "productDb" | "nyuko";
-type ReflectStatus = "pending" | "exported" | "updating" | "done" | "error";
+type ReflectStatus = "pending" | "exported" | "updating" | "done" | "error" | "skipped";
 type ReflectStatusMap = { ne: ReflectStatus; productDb: ReflectStatus; nyuko: ReflectStatus };
 type UiTheme = "light" | "dark";
 
@@ -1057,8 +1057,13 @@ function reflectStatusLabel(status: ReflectStatus) {
   if (status === "exported") return "出力済み";
   if (status === "updating") return "更新中";
   if (status === "done") return "完了";
+  if (status === "skipped") return "スキップ";
   if (status === "error") return "エラー";
   return "未処理";
+}
+
+function isReflectStepPassed(status: ReflectStatus) {
+  return status === "done" || status === "skipped";
 }
 
 export default function NyukoApp() {
@@ -1388,6 +1393,23 @@ export default function NyukoApp() {
     setReflectStatus((current) => ({ ...current, [key]: status }));
   }
 
+  function skipReflectStep(key: "productDb" | "ne") {
+    if (!result || reflectStatus[key] === "updating" || isReflectStepPassed(reflectStatus[key])) return;
+
+    const label = key === "productDb" ? "商品DB更新" : "NE更新";
+    const detail = key === "productDb"
+      ? "商品DBのorder_memo/rakumart_urlは更新されませんが、次のNE更新に進めます。"
+      : "NEの商品マスタは更新されませんが、入庫リスト出力に進めます。";
+
+    const shouldSkip = window.confirm(`${label}をスキップしますか？
+${detail}`);
+    if (!shouldSkip) return;
+
+    setReflectError(null);
+    if (key === "ne") setNeReauthUrl(null);
+    updateReflectStatus(key, "skipped");
+  }
+
   function setNyukoDone(isDone: boolean) {
     setReflectStatus((current) => ({
       ...current,
@@ -1396,7 +1418,7 @@ export default function NyukoApp() {
   }
 
   async function updateNeByApi() {
-    if (!result || reflectStatus.productDb !== "done" || reflectStatus.ne === "done" || reflectStatus.ne === "updating") return;
+    if (!result || !isReflectStepPassed(reflectStatus.productDb) || isReflectStepPassed(reflectStatus.ne) || reflectStatus.ne === "updating") return;
     if (result.neRows.length === 0) {
       updateReflectStatus("ne", "done");
       return;
@@ -1422,7 +1444,7 @@ export default function NyukoApp() {
   }
 
   async function downloadNyuko() {
-    if (!result || reflectStatus.ne !== "done") return;
+    if (!result || !isReflectStepPassed(reflectStatus.ne)) return;
     const blob = await makeNyukoXlsxBlob(result.nyukoRows, getEffectiveOtherRows());
     saveAs(blob, "入庫リスト.xlsx");
     updateReflectStatus("nyuko", "exported");
@@ -1437,7 +1459,7 @@ export default function NyukoApp() {
   }
 
   async function updateProductDb() {
-    if (!result || reflectStatus.productDb === "done" || reflectStatus.productDb === "updating") return;
+    if (!result || isReflectStepPassed(reflectStatus.productDb) || reflectStatus.productDb === "updating") return;
     if (result.productDbUpdateRows.length === 0) {
       updateReflectStatus("productDb", "done");
       return;
@@ -1466,18 +1488,26 @@ export default function NyukoApp() {
     return result.nyukoRows as unknown as Record<string, unknown>[];
   }, [activeTab, result, corrections]);
 
-  const isProductDbComplete = reflectStatus.productDb === "done";
-  const isNeComplete = reflectStatus.ne === "done";
+  const isProductDbComplete = isReflectStepPassed(reflectStatus.productDb);
+  const isNeComplete = isReflectStepPassed(reflectStatus.ne);
   const canUpdateProductDb =
     (result?.productDbUpdateRows.length ?? 0) > 0 &&
     reflectStatus.productDb !== "updating" &&
-    reflectStatus.productDb !== "done";
+    !isReflectStepPassed(reflectStatus.productDb);
+  const canSkipProductDb =
+    Boolean(result) &&
+    reflectStatus.productDb !== "updating" &&
+    !isReflectStepPassed(reflectStatus.productDb);
   const canOperateNe = Boolean(result) && isProductDbComplete;
   const canUpdateNe =
     canOperateNe &&
     (result?.neRows.length ?? 0) > 0 &&
     reflectStatus.ne !== "updating" &&
-    reflectStatus.ne !== "done";
+    !isReflectStepPassed(reflectStatus.ne);
+  const canSkipNe =
+    canOperateNe &&
+    reflectStatus.ne !== "updating" &&
+    !isReflectStepPassed(reflectStatus.ne);
   const canOperateNyuko = Boolean(result) && isProductDbComplete && isNeComplete;
   const canCompleteNyuko =
     canOperateNyuko && (reflectStatus.nyuko === "exported" || reflectStatus.nyuko === "done");
@@ -1749,19 +1779,31 @@ export default function NyukoApp() {
                 </span>
               </div>
               <strong>{result.productDbUpdateRows.length}件</strong>
-              <button
-                type="button"
-                onClick={updateProductDb}
-                disabled={!canUpdateProductDb}
-              >
-                {reflectStatus.productDb === "updating"
-                  ? "商品DB更新中…"
-                  : reflectStatus.productDb === "done"
-                    ? "更新完了"
-                    : result.productDbUpdateRows.length === 0
-                      ? "更新対象なし"
-                      : "商品DBを更新"}
-              </button>
+              <div className="reflect-actions">
+                <button
+                  type="button"
+                  onClick={updateProductDb}
+                  disabled={!canUpdateProductDb}
+                >
+                  {reflectStatus.productDb === "updating"
+                    ? "商品DB更新中…"
+                    : reflectStatus.productDb === "done"
+                      ? "更新完了"
+                      : reflectStatus.productDb === "skipped"
+                        ? "スキップ済み"
+                        : result.productDbUpdateRows.length === 0
+                          ? "更新対象なし"
+                          : "商品DBを更新"}
+                </button>
+                <button
+                  className="reflect-skip-button"
+                  type="button"
+                  onClick={() => skipReflectStep("productDb")}
+                  disabled={!canSkipProductDb}
+                >
+                  スキップ
+                </button>
+              </div>
               <small>入庫済みの order_memo と対応する rakumart_url を削除し、残りを左詰めします。</small>
             </article>
 
@@ -1776,17 +1818,29 @@ export default function NyukoApp() {
                 </span>
               </div>
               <strong>{result.neRows.length}件</strong>
-              <button type="button" onClick={updateNeByApi} disabled={!canUpdateNe}>
-                {reflectStatus.ne === "updating"
-                  ? "NE更新中…"
-                  : reflectStatus.ne === "done"
-                    ? "更新完了"
-                    : result.neRows.length === 0
-                      ? "更新対象なし"
-                      : "NEへAPI更新"}
-              </button>
+              <div className="reflect-actions">
+                <button type="button" onClick={updateNeByApi} disabled={!canUpdateNe}>
+                  {reflectStatus.ne === "updating"
+                    ? "NE更新中…"
+                    : reflectStatus.ne === "done"
+                      ? "更新完了"
+                      : reflectStatus.ne === "skipped"
+                        ? "スキップ済み"
+                        : result.neRows.length === 0
+                          ? "更新対象なし"
+                          : "NEへAPI更新"}
+                </button>
+                <button
+                  className="reflect-skip-button"
+                  type="button"
+                  onClick={() => skipReflectStep("ne")}
+                  disabled={!canSkipNe}
+                >
+                  スキップ
+                </button>
+              </div>
               <small>NE商品マスタアップロードAPIへ直接送信します。CSV出力とNE画面での手動アップロードは不要です。</small>
-              {!canOperateNe && <small>商品DB更新が完了すると操作できます。</small>}
+              {!canOperateNe && <small>商品DB更新が完了またはスキップされると操作できます。</small>}
             </article>
 
             <article className={`reflect-card ${canOperateNyuko ? "reflect-card--active" : "reflect-card--locked"}`}>
@@ -1812,7 +1866,7 @@ export default function NyukoApp() {
                 />
                 出力完了
               </label>
-              {!canOperateNyuko && <small>NE更新の反映完了後に出力できます。</small>}
+              {!canOperateNyuko && <small>NE更新が完了またはスキップされると出力できます。</small>}
             </article>
           </div>
         </section>

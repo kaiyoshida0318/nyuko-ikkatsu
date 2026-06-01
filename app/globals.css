@@ -2181,6 +2181,25 @@ body {
   background: #f1f5f9;
 }
 
+.reflect-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.reflect-card .reflect-skip-button {
+  min-width: 86px;
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.24);
+  background: #f8fafc;
+}
+
+.reflect-card .reflect-skip-button:hover:not(:disabled) {
+  border-color: rgba(100, 116, 139, 0.44);
+  background: #eef2f7;
+}
+
 .reflect-status {
   display: inline-flex;
   align-items: center;
@@ -2207,6 +2226,11 @@ body {
 .reflect-status--done {
   color: #076346;
   background: var(--good-soft);
+}
+
+.reflect-status--skipped {
+  color: #475569;
+  background: #e2e8f0;
 }
 
 .reflect-status--error {
@@ -3236,6 +3260,14 @@ th {
   font-size: 24px;
 }
 
+.reflect-actions {
+  gap: 7px;
+}
+
+.reflect-card .reflect-skip-button {
+  min-width: 78px;
+}
+
 .reflect-card small {
   font-size: 12px;
 }
@@ -3579,6 +3611,7 @@ html[data-theme="dark"] .auth-user-chip button,
 html[data-theme="dark"] .secondary-button,
 html[data-theme="dark"] .download-buttons button,
 html[data-theme="dark"] .reflect-card button,
+html[data-theme="dark"] .reflect-card .reflect-skip-button,
 html[data-theme="dark"] .reflect-link-button,
 html[data-theme="dark"] .file-remove-button,
 html[data-theme="dark"] .manual-row-add-button {
@@ -3637,6 +3670,11 @@ html[data-theme="dark"] .drop-selected-count {
   border-color: rgba(255, 255, 255, 0.09);
   color: var(--muted);
   background: #151820;
+}
+
+html[data-theme="dark"] .reflect-status--skipped {
+  color: #cbd5e1;
+  background: #263142;
 }
 
 html[data-theme="dark"] .theme-segment button.is-active,
