@@ -618,17 +618,38 @@ function buildEditableRows(result: ProcessResult): EditableExtractedRow[] {
     }
   }
 
-  return result.extracted
-    .map((row) => ({
-      row,
-      warningLabels: [...(labels.get(row.rowId) ?? new Set<string>())],
-    }))
-    .sort(
-      (a, b) =>
-        b.warningLabels.length - a.warningLabels.length ||
+  const editableRows = result.extracted.map((row, originalIndex) => ({
+    row,
+    warningLabels: [...(labels.get(row.rowId) ?? new Set<string>())],
+    originalIndex,
+  }));
+
+  const productCodeWarningMap = new Map<string, boolean>();
+  for (const item of editableRows) {
+    if (item.warningLabels.length > 0) {
+      productCodeWarningMap.set(item.row.productCodeLc, true);
+    } else if (!productCodeWarningMap.has(item.row.productCodeLc)) {
+      productCodeWarningMap.set(item.row.productCodeLc, false);
+    }
+  }
+
+  return editableRows
+    .sort((a, b) => {
+      const aGroupHasWarning = productCodeWarningMap.get(a.row.productCodeLc)
+        ? 1
+        : 0;
+      const bGroupHasWarning = productCodeWarningMap.get(b.row.productCodeLc)
+        ? 1
+        : 0;
+
+      return (
+        bGroupHasWarning - aGroupHasWarning ||
         a.row.productCodeLc.localeCompare(b.row.productCodeLc) ||
-        a.row.key.localeCompare(b.row.key),
-    );
+        b.warningLabels.length - a.warningLabels.length ||
+        a.originalIndex - b.originalIndex
+      );
+    })
+    .map(({ originalIndex, ...item }) => item);
 }
 
 function getCorrectionValue(
