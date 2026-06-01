@@ -272,14 +272,16 @@ function insertBeforeWorksheetTail(xml: string, childXml: string): string {
 function applyPrintSettings(sheetXml: string): string {
   let xml = applySheetPrFitToPage(sheetXml)
 
+  const printOptions = '<printOptions horizontalCentered="1"/>'
   const pageMargins = '<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>'
   const pageSetup = '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>'
 
   xml = xml
+    .replace(/<printOptions\b[^>]*\/>/g, '')
     .replace(/<pageMargins\b[^>]*\/>/g, '')
     .replace(/<pageSetup\b[^>]*\/>/g, '')
 
-  return insertBeforeWorksheetTail(xml, `${pageMargins}${pageSetup}`)
+  return insertBeforeWorksheetTail(xml, `${printOptions}${pageMargins}${pageSetup}`)
 }
 
 async function styleNyukoWorkbook(arrayBuffer: ArrayBuffer, mainRowCount: number, hasOtherRows: boolean): Promise<ArrayBuffer> {
