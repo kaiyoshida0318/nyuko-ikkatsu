@@ -237,28 +237,49 @@ function applySheetView(sheetXml: string): string {
   return insertWorksheetChildAfter(sheetXml, sheetViewXml, /<dimension\b[^>]*\/>/)
 }
 
-function applyPrintSettings(sheetXml: string): string {
-  let xml = sheetXml
+function applySheetPrFitToPage(sheetXml: string): string {
+  const pageSetUpPrXml = '<pageSetUpPr fitToPage="1"/>'
 
-  if (/<sheetPr[\s>]/.test(xml)) {
-    if (/<pageSetUpPr[\s\S]*?\/>/.test(xml)) {
-      xml = xml.replace(/<pageSetUpPr[\s\S]*?\/>/, '<pageSetUpPr fitToPage="1"/>')
-    } else {
-      xml = xml.replace(/<sheetPr([^>]*)>/, '<sheetPr$1><pageSetUpPr fitToPage="1"/>')
-    }
-  } else {
-    xml = xml.replace(/(<worksheet[^>]*>)/, '$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>')
+  if (/<sheetPr\b[^>]*>[\s\S]*?<\/sheetPr>/.test(sheetXml)) {
+    return sheetXml.replace(/<sheetPr\b([^>]*)>([\s\S]*?)<\/sheetPr>/, (_match, attributes: string, innerXml: string) => {
+      const cleanedInnerXml = innerXml
+        .replace(/<pageSetUpPr\b[^>]*\/>/g, '')
+        .replace(/<pageSetUpPr\b[^>]*>[\s\S]*?<\/pageSetUpPr>/g, '')
+      return `<sheetPr${attributes}>${cleanedInnerXml}${pageSetUpPrXml}</sheetPr>`
+    })
   }
+
+  if (/<sheetPr\b[^>]*\/>/.test(sheetXml)) {
+    return sheetXml.replace(/<sheetPr\b([^>]*)\/>/, (_match, attributes: string) => {
+      return `<sheetPr${attributes}>${pageSetUpPrXml}</sheetPr>`
+    })
+  }
+
+  return sheetXml.replace(/(<worksheet\b[^>]*>)/, `$1<sheetPr>${pageSetUpPrXml}</sheetPr>`)
+}
+
+function insertBeforeWorksheetTail(xml: string, childXml: string): string {
+  const tailMarkerRegex = /<(headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b/
+  const tailMarker = xml.match(tailMarkerRegex)
+
+  if (tailMarker?.index !== undefined) {
+    return `${xml.slice(0, tailMarker.index)}${childXml}${xml.slice(tailMarker.index)}`
+  }
+
+  return xml.replace(/<\/worksheet>$/, `${childXml}</worksheet>`)
+}
+
+function applyPrintSettings(sheetXml: string): string {
+  let xml = applySheetPrFitToPage(sheetXml)
 
   const pageMargins = '<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>'
   const pageSetup = '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
 
   xml = xml
-    .replace(/<pageMargins[\s\S]*?\/>/g, '')
-    .replace(/<pageSetup[\s\S]*?\/>/g, '')
+    .replace(/<pageMargins\b[^>]*\/>/g, '')
+    .replace(/<pageSetup\b[^>]*\/>/g, '')
 
-  const printSettingsXml = `${pageMargins}${pageSetup}`
-  return xml.replace(/<\/worksheet>$/, `${printSettingsXml}</worksheet>`)
+  return insertBeforeWorksheetTail(xml, `${pageMargins}${pageSetup}`)
 }
 
 async function styleNyukoWorkbook(arrayBuffer: ArrayBuffer, mainRowCount: number, hasOtherRows: boolean): Promise<ArrayBuffer> {
