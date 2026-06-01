@@ -18,7 +18,7 @@ import {
   NeReauthRequiredError,
   updateNextEngineByApi,
 } from "@/lib/neSyncWorker";
-import { runNyukoProcess } from "@/lib/process";
+import { runNyukoProcess, runNyukoProcessFromRows } from "@/lib/process";
 import { updateProductHubOrders } from "@/lib/productHub";
 import {
   embeddedSupabaseAnonKey,
@@ -201,6 +201,30 @@ function formatSavedAt(savedAt: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getReplaySourceExtractedRows(
+  currentResult: ProcessResult,
+  currentManualRows: ExtractedRow[],
+): ExtractedRow[] {
+  if (Array.isArray(currentResult.sourceExtractedRows)) {
+    return currentResult.sourceExtractedRows;
+  }
+
+  // v1保存済みデータには元ファイルのFileオブジェクトが残らない。
+  // 旧データ互換として、現在の抽出結果から手入力行を除いたものを
+  // 再処理用の元データとして使う。
+  const manualRowIds = new Set(currentManualRows.map((row) => row.rowId));
+  return currentResult.extracted.filter(
+    (row) => !manualRowIds.has(row.rowId) && !row.rowId.startsWith("manual__"),
+  );
+}
+
+function getReplaySourceOtherRows(currentResult: ProcessResult): OtherPackingRow[] {
+  if (Array.isArray(currentResult.sourceOtherRows)) {
+    return currentResult.sourceOtherRows;
+  }
+  return currentResult.otherRows;
 }
 
 const assetBasePath =
@@ -1581,12 +1605,27 @@ export default function NyukoApp() {
     }
 
     try {
-      const processResult = await runNyukoProcess(
-        files,
-        productHubSettings,
-        nextCorrections,
-        nextManualRows,
-      );
+      const processResult = files.packingFiles.length > 0
+        ? await runNyukoProcess(
+            files,
+            productHubSettings,
+            nextCorrections,
+            nextManualRows,
+          )
+        : result
+          ? await runNyukoProcessFromRows(
+              getReplaySourceExtractedRows(result, nextManualRows),
+              getReplaySourceOtherRows(result),
+              productHubSettings,
+              nextCorrections,
+              nextManualRows,
+            )
+          : await runNyukoProcess(
+              files,
+              productHubSettings,
+              nextCorrections,
+              nextManualRows,
+            );
       setResult(processResult);
       setReflectStatus(buildInitialReflectStatus(processResult));
       setReflectError(null);

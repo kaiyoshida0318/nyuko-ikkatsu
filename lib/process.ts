@@ -93,20 +93,16 @@ function applyOtherCorrections(
   });
 }
 
-export async function runNyukoProcess(
-  files: SelectedFiles,
+async function buildProcessResultFromRows(
+  sourceExtractedRows: ExtractedRow[],
+  sourceOtherRows: OtherPackingRow[],
   productHubSettings: ProductHubSettings,
   corrections: RowCorrectionMap = {},
   manualRows: ExtractedRow[] = [],
 ): Promise<ProcessResult> {
-  if (files.packingFiles.length === 0) {
-    throw new Error("ラクマート配送依頼書 P~.xlsx を選択してください。");
-  }
-
-  const parsed = await parsePackingFiles(files.packingFiles);
-  const parsedAndManualRows = [...parsed.extracted, ...manualRows];
+  const parsedAndManualRows = [...sourceExtractedRows, ...manualRows];
   const extracted = applyCorrections(parsedAndManualRows, corrections);
-  const otherRows = applyOtherCorrections(parsed.otherRows, corrections);
+  const otherRows = applyOtherCorrections(sourceOtherRows, corrections);
   const productCodes = [...new Set(extracted.map((row) => row.productCode))];
   const productRecords = await fetchProductHubRecords(
     productHubSettings,
@@ -134,6 +130,10 @@ export async function runNyukoProcess(
   const nyukoRows = buildNyukoRows(extracted, masters);
 
   return {
+    // FileオブジェクトはlocalStorageに保存できないため、復元後の再処理用に
+    // 配送依頼書から抽出した元データをProcessResult内へ保持しておく。
+    // sourceOtherRowsは画像dataUrlを含むため、localStorage容量を圧迫しないよう保存しない。
+    sourceExtractedRows,
     extracted,
     otherRows,
     productHubRecords: productRecords,
@@ -142,4 +142,40 @@ export async function runNyukoProcess(
     productDbUpdateRows,
     nyukoRows,
   };
+}
+
+export async function runNyukoProcessFromRows(
+  sourceExtractedRows: ExtractedRow[],
+  sourceOtherRows: OtherPackingRow[],
+  productHubSettings: ProductHubSettings,
+  corrections: RowCorrectionMap = {},
+  manualRows: ExtractedRow[] = [],
+): Promise<ProcessResult> {
+  return buildProcessResultFromRows(
+    sourceExtractedRows,
+    sourceOtherRows,
+    productHubSettings,
+    corrections,
+    manualRows,
+  );
+}
+
+export async function runNyukoProcess(
+  files: SelectedFiles,
+  productHubSettings: ProductHubSettings,
+  corrections: RowCorrectionMap = {},
+  manualRows: ExtractedRow[] = [],
+): Promise<ProcessResult> {
+  if (files.packingFiles.length === 0) {
+    throw new Error("ラクマート配送依頼書 P~.xlsx を選択してください。");
+  }
+
+  const parsed = await parsePackingFiles(files.packingFiles);
+  return buildProcessResultFromRows(
+    parsed.extracted,
+    parsed.otherRows,
+    productHubSettings,
+    corrections,
+    manualRows,
+  );
 }

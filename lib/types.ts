@@ -143,6 +143,13 @@ export type RowCorrection = {
 export type RowCorrectionMap = Record<string, RowCorrection>;
 
 export type ProcessResult = {
+  /**
+   * 再処理用の元データ。ブラウザのFileはlocalStorageへ保存できないため、
+   * 復元後の「修正を反映して再処理」はこの元データから再計算する。
+   * 古い保存データとの互換性のためoptional。
+   */
+  sourceExtractedRows?: ExtractedRow[];
+  sourceOtherRows?: OtherPackingRow[];
   extracted: ExtractedRow[];
   otherRows: OtherPackingRow[];
   productHubRecords: ProductHubRecord[];
