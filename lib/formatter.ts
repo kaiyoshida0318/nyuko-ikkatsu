@@ -109,10 +109,20 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function buildNyukoColumnWidths(data: unknown[][]): XLSX.ColInfo[] {
-  const minimums = [10, 12, 10, 22, 36, 10, 46]
-  const maximums = [16, 18, 14, 36, 60, 14, 70]
+  const fixedWidths: Record<number, number> = {
+    0: 6,
+    1: 8,
+    2: 7,
+    5: 8,
+    6: 35,
+  }
+  const minimums = [6, 8, 7, 22, 36, 8, 35]
+  const maximums = [6, 8, 7, 36, 60, 8, 35]
 
   return minimums.map((minimum, columnIndex) => {
+    const fixedWidth = fixedWidths[columnIndex]
+    if (fixedWidth !== undefined) return { wch: fixedWidth }
+
     const maxContentWidth = data.reduce((max, row) => Math.max(max, getDisplayWidth(row[columnIndex])), 0)
     return { wch: clamp(maxContentWidth + 4, minimum, maximums[columnIndex]) }
   })
