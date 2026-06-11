@@ -122,6 +122,9 @@ async function buildProcessResultFromRows(
     productCodeLc: record.productCodeLc,
     productName: record.productName,
     floor: record.floor,
+    rackNumber: record.rackNumber,
+    rackLevel: record.rackLevel,
+    stickerColor: record.stickerColor,
   }));
 
   const matchResult = matchAndConsume(extracted, orders);

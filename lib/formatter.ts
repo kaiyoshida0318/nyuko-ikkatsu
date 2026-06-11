@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import { makeCp932Blob } from './encoding'
 import { NeUpdateRow, NyukoListRow, OtherPackingRow, ProcessResult } from './types'
 
-const NYUKO_HEADERS = ['商品コード', '商品名', '入庫数', '階数', '備考'] as const
+const NYUKO_HEADERS = ['階数', '棚-段', 'シール', '商品コード', '商品名', '入庫数', '備考'] as const
 const OTHER_HEADERS = ['分類', '品名', '梱包数', '備考', ''] as const
 const NYUKO_COLUMN_COUNT = NYUKO_HEADERS.length
 
@@ -75,8 +75,8 @@ function buildNyukoSheetData(rows: NyukoListRow[], otherRows: OtherPackingRow[])
   ]
 
   if (otherRows.length > 0) {
-    data.push(['', '', '', '', ''])
-    data.push(['その他', '', '', '', ''])
+    data.push(Array(NYUKO_COLUMN_COUNT).fill(''))
+    data.push(['その他', ...Array(NYUKO_COLUMN_COUNT - 1).fill('')])
     data.push([...OTHER_HEADERS])
     for (const row of otherRows) {
       data.push(padSheetRow([
@@ -109,8 +109,8 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function buildNyukoColumnWidths(data: unknown[][]): XLSX.ColInfo[] {
-  const minimums = [22, 36, 10, 12, 46]
-  const maximums = [36, 60, 14, 16, 70]
+  const minimums = [10, 12, 10, 22, 36, 10, 46]
+  const maximums = [16, 18, 14, 36, 60, 14, 70]
 
   return minimums.map((minimum, columnIndex) => {
     const maxContentWidth = data.reduce((max, row) => Math.max(max, getDisplayWidth(row[columnIndex])), 0)
@@ -175,10 +175,10 @@ function getNyukoStyleIndex(cellRef: string, mainRowCount: number, hasOtherRows:
 
   const mainDataEndRow = mainRowCount + 1
   if (rowNumber >= 2 && rowNumber <= mainDataEndRow) {
-    return column === 'C' || column === 'D' ? 2 : 1
+    return ['A', 'B', 'C', 'F'].includes(column) ? 2 : 1
   }
 
-  if (!hasOtherRows) return column === 'C' || column === 'D' ? 2 : 1
+  if (!hasOtherRows) return ['A', 'B', 'C', 'F'].includes(column) ? 2 : 1
 
   const otherTitleRow = mainRowCount + 3
   const otherHeaderRow = mainRowCount + 4

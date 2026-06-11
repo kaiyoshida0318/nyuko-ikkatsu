@@ -237,6 +237,12 @@ export function buildProductDbUpdateRows(matchResult: MatchResult): ProductDbUpd
 }
 
 
+
+function buildRackDisplay(master: MasterRecord | undefined): string {
+  if (!master) return "";
+  return [master.rackNumber, master.rackLevel].filter(Boolean).join("-");
+}
+
 function floorSortValue(value: string): [number, string] {
   const matched = value.match(/(\d+)/);
   if (matched) return [Number(matched[1]), value];
@@ -265,10 +271,12 @@ export function buildNyukoRows(
     const master = masterIndex.get(productCodeLc);
 
     rows.push({
+      階数: master?.floor || "",
+      "棚-段": buildRackDisplay(master),
+      シール: master?.stickerColor || "",
       商品コード: productCode,
       商品名: master?.productName || "(商品情報未登録)",
       入庫数: quantity,
-      階数: master?.floor || "",
       備考: master ? "" : "product-data-hubに商品情報なし",
     });
   }

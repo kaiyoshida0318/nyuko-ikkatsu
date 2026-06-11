@@ -54,6 +54,9 @@ export type ProductHubRecord = {
   productCodeLc: string;
   productName: string;
   floor: string;
+  rackNumber: string;
+  rackLevel: string;
+  stickerColor: string;
   orders: (string | null)[];
   rms: (string | null)[];
 };
@@ -72,6 +75,9 @@ export type MasterRecord = {
   productCodeLc: string;
   productName: string;
   floor: string;
+  rackNumber: string;
+  rackLevel: string;
+  stickerColor: string;
 };
 
 export type WarningType = "no_product" | "no_key" | "quantity_mismatch";
@@ -123,10 +129,12 @@ export type ProductDbUpdateRow = {
 };
 
 export type NyukoListRow = {
+  階数: string;
+  "棚-段": string;
+  シール: string;
   商品コード: string;
   商品名: string;
   入庫数: number;
-  階数: string;
   備考: string;
 };
 

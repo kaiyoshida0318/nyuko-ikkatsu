@@ -455,6 +455,9 @@ export async function parseMasterCsv(file: File): Promise<MasterRecord[]> {
         productCodeLc: productCode.toLowerCase(),
         productName: normalizeCell(row["出荷時商品名"]) ?? "",
         floor: normalizeCell(row["階数"]) ?? "",
+        rackNumber: "",
+        rackLevel: "",
+        stickerColor: "",
       };
     })
     .filter((row) => row.productCode);

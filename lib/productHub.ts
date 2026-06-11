@@ -5,6 +5,9 @@ type ProductHubApiRow = {
   product_name?: unknown
   shipping_name?: unknown
   floor?: unknown
+  rack_number?: unknown
+  rack_level?: unknown
+  sticker_color?: unknown
   order_memo_1?: unknown
   order_1?: unknown
   rakumart_url_1?: unknown
@@ -33,6 +36,9 @@ const SELECT_COLUMNS = [
   'product_code',
   'product_name',
   'floor',
+  'rack_number',
+  'rack_level',
+  'sticker_color',
   'order_memo_1',
   'rakumart_url_1',
   'order_memo_2',
@@ -94,6 +100,9 @@ function toRecord(row: ProductHubApiRow): ProductHubRecord | null {
     productCodeLc: productCode.toLowerCase(),
     productName: normalizeCell(row.product_name) ?? normalizeCell(row.shipping_name) ?? '',
     floor: normalizeCell(row.floor) ?? '',
+    rackNumber: normalizeCell(row.rack_number) ?? '',
+    rackLevel: normalizeCell(row.rack_level) ?? '',
+    stickerColor: normalizeCell(row.sticker_color) ?? '',
     orders: [
       row.order_memo_1 ?? row.order_1,
       row.order_memo_2 ?? row.order_2,
