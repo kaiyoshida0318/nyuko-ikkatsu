@@ -3907,3 +3907,224 @@ html[data-theme="dark"] .upload-run-grid > .drop-zone:focus-visible {
 .reflect-reset-button {
   flex: 0 0 auto;
 }
+
+
+/* Next Engine connection status */
+.ne-connection-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid rgba(20, 23, 31, 0.10);
+  border-radius: 11px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.76);
+  font-weight: 900;
+  box-shadow: none;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.ne-connection-toggle:hover,
+.ne-connection-toggle:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(94, 106, 210, 0.22);
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(20, 23, 31, 0.06);
+}
+
+.ne-connection-toggle-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #98a2b3;
+  box-shadow: 0 0 0 4px rgba(152, 162, 179, 0.12);
+}
+
+.ne-connection-toggle--connected .ne-connection-toggle-dot {
+  background: var(--good);
+  box-shadow: 0 0 0 4px rgba(25, 135, 84, 0.11);
+}
+
+.ne-connection-toggle--reauth .ne-connection-toggle-dot,
+.ne-connection-toggle--not-configured .ne-connection-toggle-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 4px rgba(161, 98, 7, 0.10);
+}
+
+.ne-connection-toggle--worker-error .ne-connection-toggle-dot,
+.ne-connection-toggle--error .ne-connection-toggle-dot {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.10);
+}
+
+.ne-connection-toggle--checking .ne-connection-toggle-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(94, 106, 210, 0.11);
+  animation: ne-connection-pulse 1.2s ease-in-out infinite;
+}
+
+.ne-connection-toggle strong {
+  font-size: 12px;
+}
+
+.ne-connection-toggle--connected strong {
+  color: #076346;
+}
+
+.ne-connection-toggle--reauth strong,
+.ne-connection-toggle--not-configured strong {
+  color: #76500b;
+}
+
+.ne-connection-toggle--worker-error strong,
+.ne-connection-toggle--error strong {
+  color: #b42318;
+}
+
+.status-badge--danger {
+  color: #b42318;
+  border: 1px solid rgba(220, 38, 38, 0.20);
+  background: var(--danger-soft);
+}
+
+.status-badge--neutral {
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: rgba(148, 163, 184, 0.10);
+}
+
+.ne-connection-panel {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.ne-connection-status-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ne-connection-detail {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 13px 14px;
+  border: 1px solid rgba(20, 23, 31, 0.08);
+  border-radius: 12px;
+  background: #f7f8fb;
+}
+
+.ne-connection-detail > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ne-connection-detail > p:not(:first-child) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ne-connection-detail span {
+  flex: 0 0 auto;
+}
+
+.ne-connection-detail strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  text-align: right;
+}
+
+.ne-connection-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ne-connection-actions .secondary-button,
+.ne-connection-actions .reflect-link-button {
+  min-height: 36px;
+}
+
+@keyframes ne-connection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.42; }
+}
+
+html[data-theme="dark"] .ne-connection-toggle {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(28, 30, 37, 0.78);
+}
+
+html[data-theme="dark"] .ne-connection-toggle:hover,
+html[data-theme="dark"] .ne-connection-toggle:focus-visible {
+  border-color: rgba(139, 147, 255, 0.32);
+  background: rgba(36, 39, 48, 0.96);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .ne-connection-toggle--connected strong {
+  color: var(--good);
+}
+
+html[data-theme="dark"] .ne-connection-toggle--reauth strong,
+html[data-theme="dark"] .ne-connection-toggle--not-configured strong {
+  color: var(--warn);
+}
+
+html[data-theme="dark"] .ne-connection-toggle--worker-error strong,
+html[data-theme="dark"] .ne-connection-toggle--error strong {
+  color: var(--danger);
+}
+
+html[data-theme="dark"] .ne-connection-detail {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(18, 20, 25, 0.72);
+}
+
+@media (max-width: 760px) {
+  .ne-connection-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .ne-connection-toggle {
+    min-height: 38px;
+    padding: 0 11px;
+  }
+
+  .ne-connection-toggle .product-hub-toggle-label {
+    display: none;
+  }
+
+  .ne-connection-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ne-connection-actions .secondary-button,
+  .ne-connection-actions .reflect-link-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+html[data-theme="dark"] .status-badge--danger {
+  color: var(--danger);
+}
+
+html[data-theme="dark"] .status-badge--neutral {
+  color: var(--muted);
+  border-color: rgba(255, 255, 255, 0.10);
+  background: rgba(148, 163, 184, 0.08);
+}

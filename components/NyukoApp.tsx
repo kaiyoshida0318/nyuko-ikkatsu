@@ -15,7 +15,9 @@ import { saveAs } from "file-saver";
 import { detectFileRole } from "@/lib/fileRoles";
 import { makeNyukoXlsxBlob, makeZipBlob } from "@/lib/formatter";
 import {
+  getNeSyncWorkerConfigError,
   NeReauthRequiredError,
+  testNextEngineConnection,
   updateNextEngineByApi,
 } from "@/lib/neSyncWorker";
 import { runNyukoProcess, runNyukoProcessFromRows } from "@/lib/process";
@@ -53,6 +55,24 @@ type ReflectStatusMap = {
   nyuko: ReflectStatus;
 };
 type UiTheme = "light" | "dark";
+type NeConnectionStatus =
+  | "idle"
+  | "checking"
+  | "connected"
+  | "reauth"
+  | "worker-error"
+  | "error"
+  | "not-configured";
+
+type NeConnectionState = {
+  status: NeConnectionStatus;
+  message: string;
+  checkedAt: string | null;
+  reauthUrl: string | null;
+  companyName: string | null;
+  accessTokenEndDate: string | null;
+  refreshTokenEndDate: string | null;
+};
 
 type SecretQuestionResponse = {
   ok?: boolean;
@@ -281,6 +301,161 @@ function mergeFiles(
   }
 
   return next;
+}
+
+function formatNeCheckedAt(value: string | null) {
+  if (!value) return "未確認";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatNeTokenDate(value: string | null) {
+  if (!value) return "取得できませんでした";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function neConnectionLabel(status: NeConnectionStatus) {
+  if (status === "checking") return "確認中";
+  if (status === "connected") return "接続済み";
+  if (status === "reauth") return "要再認証";
+  if (status === "worker-error") return "接続エラー";
+  if (status === "not-configured") return "未設定";
+  if (status === "error") return "エラー";
+  return "未確認";
+}
+
+function NeConnectionPanel({
+  state,
+  isTesting,
+  onTest,
+}: {
+  state: NeConnectionState;
+  isTesting: boolean;
+  onTest: () => void;
+}) {
+  const isConnected = state.status === "connected";
+  const isWarn = state.status === "reauth" || state.status === "not-configured";
+  const isNeutral = state.status === "idle" || state.status === "checking";
+  const workerLabel =
+    state.status === "worker-error"
+      ? "接続失敗"
+      : state.status === "not-configured"
+        ? "URL未設定"
+        : state.status === "checking"
+          ? "確認中"
+          : state.status === "idle"
+            ? "未確認"
+            : "接続可能";
+  const workerTone =
+    state.status === "worker-error" || state.status === "not-configured"
+      ? "is-warn"
+      : state.status === "idle" || state.status === "checking"
+        ? ""
+        : "is-good";
+
+  return (
+    <div className="product-hub-settings ne-connection-panel" role="region" aria-label="NE接続状況">
+      <div className="product-hub-settings-head">
+        <div>
+          <p className="eyebrow">NEXT ENGINE</p>
+          <h2>NE接続状況</h2>
+          <p>Workerへの接続とNE API認証を実通信で確認します。</p>
+        </div>
+        <span
+          className={`status-badge ${
+            isConnected
+              ? "status-badge--good"
+              : isWarn
+                ? "status-badge--warn"
+                : isNeutral
+                  ? "status-badge--neutral"
+                  : "status-badge--danger"
+          }`}
+        >
+          {neConnectionLabel(state.status)}
+        </span>
+      </div>
+
+      <div className="product-hub-status-grid ne-connection-status-grid">
+        <div
+          className={`product-hub-status-item ${workerTone}`}
+        >
+          <span>NE Worker</span>
+          <strong>{workerLabel}</strong>
+        </div>
+        <div
+          className={`product-hub-status-item ${
+            isConnected ? "is-good" : "is-warn"
+          }`}
+        >
+          <span>NE API</span>
+          <strong>{neConnectionLabel(state.status)}</strong>
+        </div>
+        <div className="product-hub-status-item">
+          <span>最終確認</span>
+          <strong>{formatNeCheckedAt(state.checkedAt)}</strong>
+        </div>
+      </div>
+
+      <div className="ne-connection-detail">
+        <p>{state.message}</p>
+        {state.companyName && (
+          <p>
+            <span>接続先</span>
+            <strong>{state.companyName}</strong>
+          </p>
+        )}
+        {state.accessTokenEndDate && (
+          <p>
+            <span>Access Token期限</span>
+            <strong>{formatNeTokenDate(state.accessTokenEndDate)}</strong>
+          </p>
+        )}
+        {state.refreshTokenEndDate && (
+          <p>
+            <span>Refresh Token期限</span>
+            <strong>{formatNeTokenDate(state.refreshTokenEndDate)}</strong>
+          </p>
+        )}
+      </div>
+
+      <div className="ne-connection-actions">
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={onTest}
+          disabled={isTesting}
+        >
+          {isTesting ? "接続テスト中…" : "接続テスト"}
+        </button>
+        {state.reauthUrl && (
+          <a
+            className="reflect-link-button"
+            href={state.reauthUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            NEを再認証
+          </a>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ProductHubSettingsPanel({
@@ -1317,7 +1492,20 @@ export default function NyukoApp() {
   const [authEmail, setAuthEmail] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isProductHubPanelOpen, setIsProductHubPanelOpen] = useState(false);
+  const [isNeConnectionPanelOpen, setIsNeConnectionPanelOpen] = useState(false);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  const [isNeConnectionTesting, setIsNeConnectionTesting] = useState(false);
+  const [neConnection, setNeConnection] = useState<NeConnectionState>(() => ({
+    status: getNeSyncWorkerConfigError() ? "not-configured" : "idle",
+    message:
+      getNeSyncWorkerConfigError() ??
+      "ログイン後にNE Worker・NE APIの接続状態を自動確認します。",
+    checkedAt: null,
+    reauthUrl: null,
+    companyName: null,
+    accessTokenEndDate: null,
+    refreshTokenEndDate: null,
+  }));
   const [uiTheme, setUiTheme] = useState<UiTheme>(getInitialUiTheme);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1372,6 +1560,109 @@ export default function NyukoApp() {
       data.subscription.unsubscribe();
     };
   }, []);
+
+  async function runNeConnectionTest() {
+    const workerConfigError = getNeSyncWorkerConfigError();
+    if (workerConfigError) {
+      setNeConnection({
+        status: "not-configured",
+        message: workerConfigError,
+        checkedAt: new Date().toISOString(),
+        reauthUrl: null,
+        companyName: null,
+        accessTokenEndDate: null,
+        refreshTokenEndDate: null,
+      });
+      return;
+    }
+
+    const accessToken = productHubSettings.accessToken.trim();
+    if (!accessToken) return;
+
+    setIsNeConnectionTesting(true);
+    setNeConnection((current) => ({
+      ...current,
+      status: "checking",
+      message: "NE Worker・NE APIへの接続を確認しています…",
+      reauthUrl: null,
+    }));
+
+    try {
+      const connection = await testNextEngineConnection(accessToken);
+      const checkedAt = connection.checkedAt ?? new Date().toISOString();
+
+      if (connection.ok && connection.neConnected) {
+        setNeReauthUrl(null);
+        setNeConnection({
+          status: "connected",
+          message: connection.message || "NE Worker・NE APIともに接続正常です。",
+          checkedAt,
+          reauthUrl: null,
+          companyName: connection.companyName ?? null,
+          accessTokenEndDate: connection.accessTokenEndDate ?? null,
+          refreshTokenEndDate: connection.refreshTokenEndDate ?? null,
+        });
+        return;
+      }
+
+      if (
+        connection.code === "NE_TOKEN_EXPIRED" ||
+        connection.code === "NE_NOT_CONNECTED" ||
+        connection.reauthRequired
+      ) {
+        setNeConnection({
+          status: "reauth",
+          message:
+            connection.message ||
+            connection.error ||
+            "NE認証をやり直してください。",
+          checkedAt,
+          reauthUrl: connection.reauthUrl ?? null,
+          companyName: connection.companyName ?? null,
+          accessTokenEndDate: connection.accessTokenEndDate ?? null,
+          refreshTokenEndDate: connection.refreshTokenEndDate ?? null,
+        });
+        if (connection.reauthUrl) setNeReauthUrl(connection.reauthUrl);
+        return;
+      }
+
+      setNeConnection({
+        status: "error",
+        message:
+          connection.message ||
+          connection.error ||
+          "NE APIの接続確認中にエラーが発生しました。",
+        checkedAt,
+        reauthUrl: connection.reauthUrl ?? null,
+        companyName: connection.companyName ?? null,
+        accessTokenEndDate: connection.accessTokenEndDate ?? null,
+        refreshTokenEndDate: connection.refreshTokenEndDate ?? null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setNeConnection({
+        status: "worker-error",
+        message:
+          message === "Failed to fetch"
+            ? "NE Workerに接続できませんでした。Worker URL・デプロイ状況・CORS設定を確認してください。"
+            : message,
+        checkedAt: new Date().toISOString(),
+        reauthUrl: null,
+        companyName: null,
+        accessTokenEndDate: null,
+        refreshTokenEndDate: null,
+      });
+    } finally {
+      setIsNeConnectionTesting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (authLoading || !isLoggedIn) return;
+    void runNeConnectionTest();
+    // ログイン成立時に1回だけ実通信で確認する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, isLoggedIn]);
 
   useEffect(() => {
     if (authLoading || !isLoggedIn || hasCheckedSavedWorkStateRef.current)
@@ -1446,6 +1737,7 @@ export default function NyukoApp() {
     setWorkStateNotice(null);
     clearSavedWorkState();
     setIsProductHubPanelOpen(false);
+    setIsNeConnectionPanelOpen(false);
     setIsSettingsPanelOpen(false);
 
     // signOutの完了イベントを待たずに画面状態を先にログアウトへ倒す。
@@ -1787,10 +2079,24 @@ ${detail}`);
         result.neRows,
       );
       updateReflectStatus("ne", "done");
+      setNeConnection((current) => ({
+        ...current,
+        status: "connected",
+        message: "NE更新に成功しました。NE APIへ正常に接続できています。",
+        checkedAt: new Date().toISOString(),
+        reauthUrl: null,
+      }));
     } catch (err) {
       updateReflectStatus("ne", "error");
       if (err instanceof NeReauthRequiredError) {
         setNeReauthUrl(err.reauthUrl);
+        setNeConnection((current) => ({
+          ...current,
+          status: "reauth",
+          message: "NE認証の有効期限が切れています。NE認証をやり直してください。",
+          checkedAt: new Date().toISOString(),
+          reauthUrl: err.reauthUrl,
+        }));
         setReflectError(
           "NE認証の有効期限が切れています。NE認証をやり直してください。",
         );
@@ -1928,6 +2234,7 @@ ${detail}`);
               type="button"
               onClick={() => {
                 setIsProductHubPanelOpen((current) => !current);
+                setIsNeConnectionPanelOpen(false);
                 setIsSettingsPanelOpen(false);
               }}
               aria-expanded={isProductHubPanelOpen}
@@ -1937,11 +2244,27 @@ ${detail}`);
               <strong>{productHubReady ? "接続済み" : "未接続"}</strong>
             </button>
             <button
+              className={`ne-connection-toggle ne-connection-toggle--${neConnection.status}`}
+              type="button"
+              onClick={() => {
+                setIsNeConnectionPanelOpen((current) => !current);
+                setIsProductHubPanelOpen(false);
+                setIsSettingsPanelOpen(false);
+              }}
+              aria-expanded={isNeConnectionPanelOpen}
+              title="NE接続状況"
+            >
+              <span className="ne-connection-toggle-dot" />
+              <span className="product-hub-toggle-label">NE</span>
+              <strong>{neConnectionLabel(neConnection.status)}</strong>
+            </button>
+            <button
               className={`settings-toggle ${isSettingsPanelOpen ? "is-active" : ""}`}
               type="button"
               onClick={() => {
                 setIsSettingsPanelOpen((current) => !current);
                 setIsProductHubPanelOpen(false);
+                setIsNeConnectionPanelOpen(false);
               }}
               aria-label="設定を開く"
               aria-expanded={isSettingsPanelOpen}
@@ -1961,6 +2284,14 @@ ${detail}`);
             <ProductHubSettingsPanel
               settings={productHubSettings}
               userEmail={authEmail}
+            />
+          )}
+
+          {isNeConnectionPanelOpen && (
+            <NeConnectionPanel
+              state={neConnection}
+              isTesting={isNeConnectionTesting}
+              onTest={() => void runNeConnectionTest()}
             />
           )}
 

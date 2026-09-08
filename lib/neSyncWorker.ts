@@ -24,6 +24,21 @@ export type NeNyukoReflectErrorResult = {
 
 export type NeNyukoReflectResult = NeNyukoReflectSuccessResult | NeNyukoReflectErrorResult
 
+export type NeConnectionTestResult = {
+  ok: boolean
+  workerConnected?: boolean
+  neConnected?: boolean
+  code?: string
+  error?: string
+  message?: string
+  reauthRequired?: boolean
+  reauthUrl?: string
+  companyName?: string | null
+  accessTokenEndDate?: string | null
+  refreshTokenEndDate?: string | null
+  checkedAt?: string
+}
+
 export class NeReauthRequiredError extends Error {
   reauthUrl: string
 
@@ -69,6 +84,60 @@ function buildErrorMessage(parsed: NeNyukoReflectErrorResult & { details?: strin
 export function getNeSyncWorkerConfigError(): string | null {
   if (embeddedNeSyncWorkerUrl) return null
   return 'NEXT_PUBLIC_NE_SYNC_WORKER_URL が未設定です。ne-sync-worker のURLをGitHub Secretsまたは.env.localに設定してください。'
+}
+
+
+export async function testNextEngineConnection(
+  accessToken: string,
+): Promise<NeConnectionTestResult> {
+  const token = accessToken.trim()
+  if (!token) {
+    throw new Error('Supabase AuthにログインしてからNE接続テストを実行してください。')
+  }
+  if (!embeddedNeSyncWorkerUrl) {
+    throw new Error(getNeSyncWorkerConfigError() ?? 'ne-sync-worker URLが未設定です。')
+  }
+
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 15000)
+
+  try {
+    const response = await fetch(`${embeddedNeSyncWorkerUrl}/api/ne/connection-test`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+
+    const responseText = await response.text()
+    let parsed: NeConnectionTestResult
+    try {
+      parsed = JSON.parse(responseText) as NeConnectionTestResult
+    } catch {
+      parsed = {
+        ok: false,
+        workerConnected: true,
+        neConnected: false,
+        error: responseText || `HTTP ${response.status}`,
+      }
+    }
+
+    // HTTP応答が返ってきた時点でWorker自体には到達できている。
+    return {
+      ...parsed,
+      workerConnected: parsed.workerConnected ?? true,
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('NE Workerへの接続がタイムアウトしました。')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 }
 
 export async function updateNextEngineByApi(
