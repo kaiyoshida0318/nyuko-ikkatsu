@@ -383,7 +383,21 @@ export function computeCosts(
       // 1行に複数コード → 入数で按分
       const missing = liveCodes.filter((code) => !(rules.unitRules[code] > 0));
       let weights: number[];
-      if (missing.length > 0) {
+      // 入数が未登録でも、未登録分を「1単位に1個」とみなすと出荷数とぴったり合うなら、それで分ける
+      // （例：ケース・やすりの行にS/L両方の●▲がある付属品の行。1セットに1個ずつ使う）
+      const assumedOne =
+        missing.length > 0 &&
+        Math.round(
+          liveCodes.reduce(
+            (sum, code) => sum + unitsByCode.get(code)!.units * (rules.unitRules[code] > 0 ? rules.unitRules[code] : 1),
+            0,
+          ),
+        ) === Math.round(line.shipQty);
+      if (assumedOne) {
+        weights = liveCodes.map(
+          (code) => unitsByCode.get(code)!.units * (rules.unitRules[code] > 0 ? rules.unitRules[code] : 1),
+        );
+      } else if (missing.length > 0) {
         weights = liveCodes.map((code) => unitsByCode.get(code)!.units);
         const missingNames = missing.map((code) => unitsByCode.get(code)!.productCode);
         issues.push({
