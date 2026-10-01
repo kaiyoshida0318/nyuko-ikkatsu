@@ -103,6 +103,8 @@ export async function deleteMaterialRule(orderNo: string, itemNo: string): Promi
 const round4 = (value: number) => Math.round(value * 10000) / 10000;
 
 export type CostRegistrationPayload = {
+  /** receipt：通常の入庫 / backfill：過去の便を原価だけ登録 */
+  mode?: "receipt" | "backfill";
   shipments: Array<Record<string, unknown>>;
   lots: Array<{
     product_code: string;
@@ -116,6 +118,8 @@ export type CostRegistrationPayload = {
     unit_other: number;
     needs_review: boolean;
     note: string | null;
+    /** backfill のときの登録日（配送依頼書の日付） */
+    received_at?: string;
   }>;
   stock: NeStockBefore[];
 };
@@ -125,15 +129,23 @@ export type CostRegistrationPayload = {
  * この時点の計算結果を固定して保存する。
  * neCodesLc：NEに在庫を加算するコード（NE更新に含まれないコードは便を登録しない）
  */
+/** P2026091008463813-2147 → 2026-09-10T08:46:00+09:00 */
+export function shipmentDateIso(shipmentId: string): string | undefined {
+  const m = shipmentId.match(/^P(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+09:00` : undefined;
+}
+
 export function buildCostRegistrationPayload(
   cost: CostResult,
-  neCodesLc: Set<string>,
+  neCodesLc: Set<string> | null,
+  options: { mode?: "receipt" | "backfill" } = {},
 ): { payload: Omit<CostRegistrationPayload, "stock">; skippedCodes: string[] } {
+  const mode = options.mode ?? "receipt";
   const skipped = new Set<string>();
   const lots: CostRegistrationPayload["lots"] = [];
   for (const code of cost.codes) {
     if (code.units <= 0) continue;
-    if (!neCodesLc.has(code.productCodeLc)) {
+    if (neCodesLc && !neCodesLc.has(code.productCodeLc)) {
       skipped.add(code.productCode);
       continue;
     }
@@ -149,6 +161,7 @@ export function buildCostRegistrationPayload(
       unit_other: round4(code.unitBreakdown.other),
       needs_review: code.status === "error",
       note: code.messages.length ? code.messages.join(" / ") : null,
+      ...(mode === "backfill" ? { received_at: shipmentDateIso(code.shipmentId) } : {}),
     });
   }
   const shipments = cost.shipments.map((s) => ({
@@ -182,13 +195,15 @@ export function buildCostRegistrationPayload(
         .map((i) => ({ level: i.level, kind: i.kind, message: i.message })),
     },
   }));
-  return { payload: { shipments, lots }, skippedCodes: [...skipped].sort() };
+  return { payload: { mode, shipments, lots }, skippedCodes: [...skipped].sort() };
 }
 
 export type CostRegistrationResult = {
   ok: boolean;
+  mode?: "receipt" | "backfill";
   registered_lots: number;
   skipped_products: number;
+  revalued_opening_lots?: number;
   reconciled: Array<{
     product_code: string;
     consumed?: number;
@@ -204,4 +219,35 @@ export async function registerCostReceipt(
   const { data, error } = await requireClient().rpc("cost_register_receipt", { p: payload });
   if (error) throw new Error(describe(error));
   return data as CostRegistrationResult;
+}
+
+/**
+ * 商品ごとに登録済みのいちばん新しい便。NEの原価を、より古い便の値で上書きしないために使う。
+ * 戻り値は 商品コード小文字 → 配送依頼書番号
+ */
+export async function fetchLatestShipments(productCodes: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (productCodes.length === 0) return map;
+  const { data, error } = await requireClient().rpc("cost_latest_shipments", { p_codes: productCodes });
+  if (error) throw new Error(describe(error));
+  for (const row of (data ?? []) as Array<{ product_code_lc: string; shipment_id: string }>) {
+    map.set(row.product_code_lc, row.shipment_id);
+  }
+  return map;
+}
+
+/** neGenka のうち、すでにもっと新しい便が登録されている商品を除く */
+export async function filterGenkaByLatest<T extends { productCode: string; shipmentId: string }>(rows: T[]): Promise<{
+  rows: T[];
+  skipped: string[];
+}> {
+  const latest = await fetchLatestShipments(rows.map((row) => row.productCode));
+  const kept: T[] = [];
+  const skipped: string[] = [];
+  for (const row of rows) {
+    const newest = latest.get(row.productCode.toLowerCase());
+    if (newest && newest > row.shipmentId) skipped.push(row.productCode);
+    else kept.push(row);
+  }
+  return { rows: kept, skipped };
 }

@@ -209,3 +209,52 @@ export async function updateNextEngineByApi(
 
   return parsed
 }
+
+async function postWorker<T>(accessToken: string, path: string, body: unknown): Promise<T> {
+  const token = accessToken.trim()
+  if (!token) throw new Error('Supabase Authにログインしてから実行してください。')
+  if (!embeddedNeSyncWorkerUrl) {
+    throw new Error(getNeSyncWorkerConfigError() ?? 'ne-sync-worker URLが未設定です。')
+  }
+  const response = await fetch(`${embeddedNeSyncWorkerUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  const responseText = await response.text()
+  const parsed = parseWorkerError(responseText)
+  if (!response.ok || (parsed as { ok?: boolean }).ok === false) {
+    const message = buildErrorMessage(parsed, responseText)
+    if (parsed.code === 'NE_TOKEN_EXPIRED' && parsed.reauthUrl) {
+      throw new NeReauthRequiredError(message || 'NE認証の有効期限が切れています。NE認証をやり直してください。', parsed.reauthUrl)
+    }
+    throw new Error(`NE Workerの呼び出しに失敗しました（${response.status}）: ${message}`)
+  }
+  return JSON.parse(responseText) as T
+}
+
+/** 指定商品の今のNE在庫数と原価（過去の便を原価だけ登録するときの照合用） */
+export async function fetchNeStockCost(accessToken: string, productCodes: string[]): Promise<NeStockBefore[]> {
+  const unique = [...new Map(productCodes.map((code) => [code.toLowerCase(), code])).values()]
+  const items: NeStockBefore[] = []
+  for (let i = 0; i < unique.length; i += 1000) {
+    const result = await postWorker<{ items?: NeStockBefore[] }>(accessToken, '/api/ne/stock-cost', {
+      product_codes: unique.slice(i, i + 1000),
+    })
+    items.push(...(result.items ?? []))
+  }
+  return items
+}
+
+/** NEの原価だけを更新する（在庫数・型番には触れない） */
+export async function updateNeGenkaOnly(
+  accessToken: string,
+  rows: Array<{ syohin_code: string; genka_tnk: number }>,
+): Promise<{ uploadRows: number; message?: string }> {
+  if (rows.length === 0) return { uploadRows: 0 }
+  return postWorker(accessToken, '/api/ne/reflect-nyuko', { cost_only: true, rows })
+}

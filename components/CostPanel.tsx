@@ -243,7 +243,9 @@ function RegistrationBox({ state, onRetry }: { state: CostRegistrationState; onR
           {state.status === "updating"
             ? "便ごとの在庫を登録中…"
             : state.status === "done"
-              ? "便ごとの在庫を登録しました"
+              ? state.payload.mode === "backfill"
+                ? "過去の便を原価だけ登録しました"
+                : "便ごとの在庫を登録しました"
               : "便ごとの在庫の登録に失敗しました"}
         </strong>
         <span>{state.message}</span>
@@ -254,6 +256,7 @@ function RegistrationBox({ state, onRetry }: { state: CostRegistrationState; onR
             {opening > 0 && ` / 期首在庫を作成 ${opening}商品`}
             {adjusted > 0 && ` / 在庫増の調整 ${adjusted}商品`}
             {state.result.skipped_products > 0 && ` / 登録済みのためスキップ ${state.result.skipped_products}商品`}
+            {(state.result.revalued_opening_lots ?? 0) > 0 && ` / 期首在庫の原価を置き換え ${state.result.revalued_opening_lots}件`}
           </span>
         )}
         {state.skippedCodes.length > 0 && (

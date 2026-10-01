@@ -45,6 +45,9 @@ create table if not exists public.cost_lots (
   created_at     timestamptz not null default now()
 );
 
+-- 期首在庫を、最初に原価計算された便の原価で置き換えたときの便
+alter table public.cost_lots add column if not exists revalued_shipment_id text;
+
 create unique index if not exists cost_lots_shipment_uniq
   on public.cost_lots (lower(product_code), shipment_id)
   where lot_type = 'shipment';
@@ -121,16 +124,19 @@ grant usage, select on sequence public.cost_lots_id_seq, public.cost_stock_log_i
 
 -- ---------------------------------------------------------------------
 -- 1商品の在庫照合（先入先出）
---   NE在庫 < 便の残数合計 → 差分を古い便から消費
---   NE在庫 > 便の残数合計 → 差分を「調整」便として追加（最新の原価）
---   便が1つもない → NE在庫を「期首」便として作成（NEの現在原価）
+--   NE在庫 < 便の残数合計 → 差分を古い便から消費（期首在庫がいちばん古い扱い）
+--   NE在庫 > 便の残数合計 → 通常：差分を「調整」として追加（最新の原価）
+--                            過去の便の登録（p_backfill）：差分は便より前からあった在庫なので「期首在庫」として追加
+--   便が1つもない → NE在庫を「期首」便として作成（NEの現在原価。最初の便の原価計算で置き換わる）
 -- ---------------------------------------------------------------------
+drop function if exists public.cost__reconcile(text, integer, numeric, text, text);
 create or replace function public.cost__reconcile(
   p_code        text,
   p_stock       integer,
   p_cost_price  numeric,
   p_event       text,
-  p_shipment_id text default null
+  p_shipment_id text default null,
+  p_backfill    boolean default false
 ) returns jsonb
 language plpgsql
 as $$
@@ -177,7 +183,7 @@ begin
       select id, qty_remaining
         from public.cost_lots
        where lower(product_code) = lower(p_code) and qty_remaining > 0
-       order by received_at, id
+       order by (lot_type <> 'opening'), received_at, id
        for update
     loop
       exit when v_diff <= 0;
@@ -186,6 +192,15 @@ begin
       v_diff := v_diff - v_take;
       v_consumed := v_consumed + v_take;
     end loop;
+  elsif v_lots_qty < v_stock and p_backfill then
+    insert into public.cost_lots(product_code, lot_type, received_at, qty_in, qty_remaining, unit_cost, needs_review, note)
+    select p_code, 'opening',
+           least(now(), coalesce(min(received_at), now()) - interval '1 second'),
+           v_stock - v_lots_qty, v_stock - v_lots_qty, p_cost_price,
+           (p_cost_price is null or p_cost_price <= 0),
+           '期首在庫（登録した過去の便より前からあった分）'
+      from public.cost_lots where lower(product_code) = lower(p_code);
+    v_opening := v_stock - v_lots_qty;
   elsif v_lots_qty < v_stock then
     select unit_cost into v_latest
       from public.cost_lots
@@ -212,13 +227,20 @@ $$;
 -- ---------------------------------------------------------------------
 -- 入庫一括から呼ぶ：便の登録 + 在庫照合 + 新しい便の追加（1トランザクション）
 -- p = {
+--   "mode":      "receipt"（通常の入庫）| "backfill"（過去の便を原価だけ登録）,
 --   "shipments": [{shipment_id, source_file, rate, goods_cny, ..., detail}],
 --   "lots":      [{product_code, shipment_id, qty, unit_cost, unit_goods, unit_option,
---                  unit_domestic, unit_intl, unit_other, needs_review, note}],
---   "stock":     [{product_code, stock_quantity, cost_price}]   -- NEアップロード直前の値
+--                  unit_domestic, unit_intl, unit_other, needs_review, note, received_at}],
+--   "stock":     [{product_code, stock_quantity, cost_price}]
+--                 receipt：NEアップロード直前の在庫（入庫分を含まない）
+--                 backfill：今のNE在庫（過去の便の分はすでに含まれている）
 -- }
+-- receipt ：照合 → 便を追加（登録日は今）
+-- backfill：便を追加（登録日は配送依頼書の日付）→ 照合（足りない分は期首在庫としていちばん古い位置へ）
+-- どちらも最後に、まだ置き換えていない期首在庫の原価を、今回登録したいちばん古い便の原価で置き換える。
 -- 同じ便・同じ商品がすでに登録済みならスキップ（再実行しても二重登録しない）
 -- ---------------------------------------------------------------------
+drop function if exists public.cost_register_receipt(jsonb);
 create or replace function public.cost_register_receipt(p jsonb)
 returns jsonb
 language plpgsql
@@ -228,11 +250,22 @@ declare
   l            jsonb;
   v_code       text;
   v_stock      jsonb;
+  v_mode       text := coalesce(p->>'mode', 'receipt');
+  v_backfill   boolean := coalesce(p->>'mode', 'receipt') = 'backfill';
   v_results    jsonb := '[]'::jsonb;
   v_registered integer := 0;
   v_skipped    integer := 0;
+  v_revalued   integer := 0;
   v_rec        jsonb;
+  v_id         bigint;
+  v_ids        bigint[];
+  v_first      record;
+  v_count      integer;
 begin
+  if v_mode not in ('receipt', 'backfill') then
+    raise exception 'mode は receipt か backfill を指定してください: %', v_mode;
+  end if;
+
   for s in select * from jsonb_array_elements(coalesce(p->'shipments', '[]'::jsonb)) loop
     insert into public.cost_shipments(
       shipment_id, source_file, rate, goods_cny, option_cny, domestic_cny,
@@ -253,7 +286,7 @@ begin
       from jsonb_array_elements(coalesce(p->'lots', '[]'::jsonb)) x
      order by lower(x->>'product_code')
   loop
-    -- この商品の新しい便のうち未登録のもの
+    -- この商品の便のうち未登録のものがなければスキップ
     if not exists (
       select 1
         from jsonb_array_elements(p->'lots') x
@@ -273,50 +306,105 @@ begin
      where lower(x->>'product_code') = lower(v_code)
      limit 1;
 
-    v_rec := public.cost__reconcile(
-      v_code,
-      nullif(v_stock->>'stock_quantity', '')::numeric::integer,
-      nullif(v_stock->>'cost_price', '')::numeric,
-      'receipt',
-      null
-    );
+    if not v_backfill then
+      v_rec := public.cost__reconcile(
+        v_code,
+        nullif(v_stock->>'stock_quantity', '')::numeric::integer,
+        nullif(v_stock->>'cost_price', '')::numeric,
+        'receipt', null, false);
+    end if;
 
+    v_ids := array[]::bigint[];
     for l in
       select x from jsonb_array_elements(p->'lots') x
        where lower(x->>'product_code') = lower(v_code)
        order by x->>'shipment_id'
     loop
       if (l->>'qty')::integer <= 0 then continue; end if;
+      v_id := null;
       insert into public.cost_lots(
-        product_code, lot_type, shipment_id, qty_in, qty_remaining,
+        product_code, lot_type, shipment_id, received_at, qty_in, qty_remaining,
         unit_cost, unit_goods, unit_option, unit_domestic, unit_intl, unit_other,
         needs_review, note)
       values (
         l->>'product_code', 'shipment', l->>'shipment_id',
+        case when v_backfill then coalesce(nullif(l->>'received_at', '')::timestamptz, now()) else now() end,
         (l->>'qty')::integer, (l->>'qty')::integer,
         (l->>'unit_cost')::numeric, (l->>'unit_goods')::numeric, (l->>'unit_option')::numeric,
         (l->>'unit_domestic')::numeric, (l->>'unit_intl')::numeric, (l->>'unit_other')::numeric,
-        coalesce((l->>'needs_review')::boolean, false), l->>'note')
-      on conflict do nothing;
-      if found then
+        coalesce((l->>'needs_review')::boolean, false),
+        case when v_backfill then concat_ws(' / ', '過去の便を原価だけ登録', l->>'note') else l->>'note' end)
+      on conflict do nothing
+      returning id into v_id;
+      if v_id is not null then
+        v_ids := v_ids || v_id;
         v_registered := v_registered + 1;
-        update public.cost_stock_log
-           set added = added + (l->>'qty')::integer,
-               shipment_id = coalesce(shipment_id, l->>'shipment_id')
-         where id = (select max(id) from public.cost_stock_log where lower(product_code) = lower(v_code));
       end if;
     end loop;
+
+    if v_backfill then
+      v_rec := public.cost__reconcile(
+        v_code,
+        nullif(v_stock->>'stock_quantity', '')::numeric::integer,
+        nullif(v_stock->>'cost_price', '')::numeric,
+        'backfill', null, true);
+    end if;
+
+    -- 照合ログに追加数と便を記録
+    update public.cost_stock_log
+       set added = added + coalesce((select sum(qty_in) from public.cost_lots where id = any(v_ids)), 0),
+           shipment_id = coalesce(shipment_id, (select min(shipment_id) from public.cost_lots where id = any(v_ids)))
+     where id = (select max(id) from public.cost_stock_log where lower(product_code) = lower(v_code));
+
+    -- 期首在庫の原価を、今回登録したいちばん古い便（要確認でないもの）の原価で置き換える（1回だけ）
+    select * into v_first
+      from public.cost_lots
+     where id = any(v_ids) and not needs_review and unit_cost is not null
+     order by received_at, shipment_id
+     limit 1;
+    if found then
+      update public.cost_lots
+         set unit_cost = v_first.unit_cost,
+             unit_goods = v_first.unit_goods,
+             unit_option = v_first.unit_option,
+             unit_domestic = v_first.unit_domestic,
+             unit_intl = v_first.unit_intl,
+             unit_other = v_first.unit_other,
+             needs_review = false,
+             revalued_shipment_id = v_first.shipment_id,
+             note = '期首在庫（原価は ' || v_first.shipment_id || ' の便から）'
+       where lower(product_code) = lower(v_code)
+         and lot_type = 'opening'
+         and revalued_shipment_id is null;
+      get diagnostics v_count = row_count;
+      v_revalued := v_revalued + v_count;
+    end if;
 
     v_results := v_results || jsonb_build_array(v_rec);
   end loop;
 
   return jsonb_build_object(
     'ok', true,
+    'mode', v_mode,
     'registered_lots', v_registered,
     'skipped_products', v_skipped,
+    'revalued_opening_lots', v_revalued,
     'reconciled', v_results
   );
 end;
+$$;
+
+-- 商品ごとに登録済みのいちばん新しい便（NEの原価を古い便の値で上書きしないための確認用）
+create or replace function public.cost_latest_shipments(p_codes text[])
+returns table(product_code_lc text, shipment_id text)
+language sql
+stable
+as $$
+  select lower(product_code), max(shipment_id)
+    from public.cost_lots
+   where lot_type = 'shipment'
+     and lower(product_code) = any(select lower(c) from unnest(p_codes) c)
+   group by lower(product_code);
 $$;
 
 -- ---------------------------------------------------------------------
@@ -344,13 +432,15 @@ begin
       nullif(x->>'stock_quantity', '')::numeric::integer,
       nullif(x->>'cost_price', '')::numeric,
       'sync',
-      null));
+      null,
+      false));
   end loop;
   return jsonb_build_object('ok', true, 'reconciled', v_results);
 end;
 $$;
 
-grant execute on function public.cost__reconcile(text, integer, numeric, text, text) to authenticated, service_role;
+grant execute on function public.cost__reconcile(text, integer, numeric, text, text, boolean) to authenticated, service_role;
+grant execute on function public.cost_latest_shipments(text[]) to authenticated, service_role;
 grant execute on function public.cost_register_receipt(jsonb) to authenticated, service_role;
 grant execute on function public.cost_reconcile_stock(jsonb) to authenticated, service_role;
 

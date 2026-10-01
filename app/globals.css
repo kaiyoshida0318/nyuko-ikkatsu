@@ -4562,3 +4562,36 @@ html[data-theme="dark"] .cost-table .cost-row-note,
 html[data-theme="dark"] .cost-table td:nth-child(2) {
   color: var(--muted);
 }
+
+/* 過去の便を原価だけ登録 */
+.cost-only-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cost-only-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.cost-only-card {
+  margin-top: 18px;
+}
+
+.cost-only-card small {
+  line-height: 1.7;
+}
+
+.cost-only-ok {
+  color: var(--good);
+  font-weight: 700;
+}

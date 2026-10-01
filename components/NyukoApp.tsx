@@ -20,6 +20,7 @@ import {
   registerCostReceipt,
   saveMaterialRule,
   saveUnitRule,
+  filterGenkaByLatest,
 } from "@/lib/costStore";
 import type { CostRules, MaterialRule, NeStockBefore } from "@/lib/costTypes";
 import { detectFileRole } from "@/lib/fileRoles";
@@ -29,6 +30,8 @@ import {
   NeReauthRequiredError,
   testNextEngineConnection,
   updateNextEngineByApi,
+  fetchNeStockCost,
+  updateNeGenkaOnly,
 } from "@/lib/neSyncWorker";
 import { runNyukoProcess, runNyukoProcessFromRows } from "@/lib/process";
 import { updateProductHubOrders } from "@/lib/productHub";
@@ -120,6 +123,8 @@ type SavedWorkState = {
   neReauthUrl: string | null;
   /** 原価：NE更新時に固定した便の登録内容と状態（古い保存データにはない） */
   costRegistration?: CostRegistrationState | null;
+  /** 過去の便を原価だけ登録するモード */
+  costOnlyMode?: boolean;
 };
 
 const emptyCostRules: CostRules = { unitRules: {}, materialRules: {} };
@@ -214,6 +219,7 @@ function readSavedWorkState(): SavedWorkState | null {
       neReauthUrl:
         typeof parsed.neReauthUrl === "string" ? parsed.neReauthUrl : null,
       costRegistration: normalizeCostRegistration(parsed.costRegistration),
+      costOnlyMode: parsed.costOnlyMode === true,
     };
   } catch (err) {
     console.warn("Saved work state restore failed:", err);
@@ -1547,6 +1553,8 @@ export default function NyukoApp() {
   const [costRules, setCostRules] = useState<CostRules>(emptyCostRules);
   const [costRulesLoading, setCostRulesLoading] = useState(false);
   const [costRulesError, setCostRulesError] = useState<string | null>(null);
+  const [costOnlyMode, setCostOnlyMode] = useState(false);
+  const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
   const [costRegistration, setCostRegistration] =
     useState<CostRegistrationState | null>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
@@ -1744,6 +1752,7 @@ export default function NyukoApp() {
     setReflectError(savedState.reflectError);
     setNeReauthUrl(savedState.neReauthUrl);
     setCostRegistration(savedState.costRegistration ?? null);
+    setCostOnlyMode(savedState.costOnlyMode ?? false);
     setError(null);
     setWorkStateNotice(
       "前回の作業状態を復元しました。必要ならこのまま更新・出力を続行できます。",
@@ -1764,6 +1773,7 @@ export default function NyukoApp() {
       reflectError,
       neReauthUrl,
       costRegistration,
+      costOnlyMode,
     });
 
     if (!saved) {
@@ -1774,6 +1784,7 @@ export default function NyukoApp() {
   }, [
     activeTab,
     corrections,
+    costOnlyMode,
     costRegistration,
     manualRows,
     neReauthUrl,
@@ -2144,6 +2155,63 @@ ${detail}`);
     await runCostRegistration(costRegistration);
   }
 
+  // 過去の便を原価だけ登録する。NEの在庫数・型番と商品DBのオーダーには触れない。
+  async function runBackfill() {
+    if (!result || !costResult || costRegistration?.status === "updating") return;
+    const errors = costResult.issues.filter((issue) => issue.level === "error");
+    const shipmentLabels = costResult.shipments.map((s) => s.shipmentId).join("\n");
+    const ok = window.confirm(
+      `次の便を「原価だけ」登録します（NEの在庫数・型番、商品DBのオーダーは変更しません）。\n${shipmentLabels}\n\n` +
+        (errors.length > 0 ? `原価計算に要対応が${errors.length}件あります。その商品はNEの原価を更新せず、便は「要確認」として登録します。\n\n` : "") +
+        "すでに届いて在庫に入っている便だけを選んでください。続けますか？",
+    );
+    if (!ok) return;
+
+    setReflectError(null);
+    setBackfillMessage(null);
+    const plan = buildCostRegistrationPayload(costResult, null, { mode: "backfill" });
+    if (plan.payload.lots.length === 0) {
+      setReflectError("登録できる便がありません（入庫数が0、または原価データがありません）。");
+      return;
+    }
+    let stock;
+    try {
+      stock = await fetchNeStockCost(
+        productHubSettings.accessToken,
+        plan.payload.lots.map((lot) => lot.product_code),
+      );
+    } catch (err) {
+      if (err instanceof NeReauthRequiredError) setNeReauthUrl(err.reauthUrl);
+      setReflectError(err instanceof Error ? err.message : "NEの在庫数を取得できませんでした。");
+      return;
+    }
+
+    await runCostRegistration({
+      status: "updating",
+      payload: { ...plan.payload, stock },
+      skippedCodes: plan.skippedCodes,
+      message: "",
+    });
+
+    // 便を登録したあとで、NEの原価を更新する（もっと新しい便がある商品は除く）
+    try {
+      const { rows, skipped } = await filterGenkaByLatest(costResult.neGenka);
+      const res = await updateNeGenkaOnly(
+        productHubSettings.accessToken,
+        rows.map((row) => ({ syohin_code: row.productCode, genka_tnk: row.genkaTnk })),
+      );
+      setBackfillMessage(
+        `NEの原価を${res.uploadRows}件更新しました。` +
+          (skipped.length > 0 ? `（もっと新しい便が登録済みの${skipped.length}件は更新していません）` : ""),
+      );
+    } catch (err) {
+      if (err instanceof NeReauthRequiredError) setNeReauthUrl(err.reauthUrl);
+      setReflectError(
+        `便の登録は終わりましたが、NEの原価の更新に失敗しました：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   async function updateNeByApi() {
     if (
       !result ||
@@ -2178,9 +2246,22 @@ ${detail}`);
     updateReflectStatus("ne", "updating");
     let stockBefore: NeStockBefore[] | null = null;
     try {
+      // すでにもっと新しい便が登録されている商品は、NEの原価を古い値で上書きしない
+      let rowsToSend = neRowsWithGenka;
+      if (costResult && costResult.neGenka.length > 0) {
+        try {
+          const { rows: kept } = await filterGenkaByLatest(costResult.neGenka);
+          const keep = new Set(kept.map((row) => row.productCode.toLowerCase()));
+          rowsToSend = neRowsWithGenka.map((row) =>
+            keep.has(row.syohin_code.toLowerCase()) ? row : { ...row, genka_tnk: null },
+          );
+        } catch (err) {
+          console.warn("cost_latest_shipments の確認に失敗したため、そのまま送ります:", err);
+        }
+      }
       const response = await updateNextEngineByApi(
         productHubSettings.accessToken,
-        neRowsWithGenka,
+        rowsToSend,
         { includeStockBefore: Boolean(plan && plan.payload.lots.length > 0) },
       );
       stockBefore = response.stockBefore ?? null;
@@ -2657,6 +2738,20 @@ ${detail}`);
               <p className="eyebrow">REFLECT</p>
               <h2>入庫反映</h2>
             </div>
+            {result.costSources && result.costSources.length > 0 && (
+              <label className="cost-only-toggle">
+                <input
+                  type="checkbox"
+                  checked={costOnlyMode}
+                  disabled={reflectStatus.ne === "updating" || costRegistration?.status === "updating"}
+                  onChange={(event) => {
+                    setCostOnlyMode(event.target.checked);
+                    setBackfillMessage(null);
+                  }}
+                />
+                過去の便を原価だけ登録
+              </label>
+            )}
             {canResetWork && (
               <button
                 className="secondary-button reflect-reset-button"
@@ -2679,6 +2774,47 @@ ${detail}`);
             </div>
           )}
 
+          {costOnlyMode ? (
+            <article className="reflect-card reflect-card--active cost-only-card">
+              <div className="reflect-card-head">
+                <div className="reflect-step-title">
+                  <span>¥</span>
+                  <h3>過去の便を原価だけ登録</h3>
+                </div>
+                <span className={`reflect-status reflect-status--${costRegistration?.payload.mode === "backfill" ? (costRegistration.status === "done" ? "done" : costRegistration.status === "error" ? "error" : "updating") : "pending"}`}>
+                  {costRegistration?.payload.mode === "backfill"
+                    ? costRegistration.status === "done"
+                      ? "登録済み"
+                      : costRegistration.status === "error"
+                        ? "エラー"
+                        : "登録中"
+                    : "未登録"}
+                </span>
+              </div>
+              <strong>
+                {costResult?.shipments.length ?? 0}便・{costResult?.codes.filter((c) => c.units > 0).length ?? 0}件
+              </strong>
+              <div className="reflect-actions">
+                <button
+                  type="button"
+                  onClick={() => void runBackfill()}
+                  disabled={
+                    !costResult ||
+                    costRegistration?.status === "updating" ||
+                    (costRegistration?.payload.mode === "backfill" && costRegistration.status === "done")
+                  }
+                >
+                  {costRegistration?.status === "updating" ? "登録中…" : "原価だけ登録"}
+                </button>
+              </div>
+              <small>
+                すでに届いて在庫に入っている便を、在庫金額計算くんに「原価だけ」登録します。NEの在庫数・型番と商品DBのオーダーは変更しません。
+                便の登録日は配送依頼書の日付になり、今のNE在庫と照合して、売れた分は古い便から減らします。NE在庫のほうが多い分はその便より前からある在庫（期首在庫）になり、期首在庫の原価は最初に原価計算された便の原価に置き換わります。
+                NEの原価は、もっと新しい便がまだ登録されていない商品だけ更新します。古い便から順に登録してください。
+              </small>
+              {backfillMessage && <small className="cost-only-ok">{backfillMessage}</small>}
+            </article>
+          ) : (
           <div className="reflect-grid reflect-grid--ordered">
             <article className="reflect-card reflect-card--active">
               <div className="reflect-card-head">
@@ -2815,6 +2951,7 @@ ${detail}`);
               )}
             </article>
           </div>
+          )}
         </section>
       )}
 
