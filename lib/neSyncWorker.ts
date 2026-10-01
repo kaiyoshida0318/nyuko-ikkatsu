@@ -1,3 +1,4 @@
+import type { NeStockBefore } from './costTypes'
 import type { NeUpdateRow } from './types'
 
 export type NeNyukoReflectSuccessResult = {
@@ -10,7 +11,10 @@ export type NeNyukoReflectSuccessResult = {
   queId?: string | null
   neResult?: string | null
   csvPreview?: string[]
-  examples?: Array<{ syohin_code: string; zaiko_su: number; kataban: string }>
+  examples?: Array<{ syohin_code: string; zaiko_su: number; kataban: string; genka_tnk?: number | null }>
+  genkaRows?: number
+  /** include_stock_before=true のとき、アップロード直前のNE在庫数・原価 */
+  stockBefore?: NeStockBefore[] | null
   message: string
 }
 
@@ -143,7 +147,8 @@ export async function testNextEngineConnection(
 export async function updateNextEngineByApi(
   accessToken: string,
   rows: NeUpdateRow[],
-): Promise<NeNyukoReflectResult> {
+  options: { includeStockBefore?: boolean } = {},
+): Promise<NeNyukoReflectSuccessResult> {
   const token = accessToken.trim()
   if (!token) {
     throw new Error('Supabase AuthにログインしてからNE更新を実行してください。')
@@ -174,7 +179,7 @@ export async function updateNextEngineByApi(
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, include_stock_before: Boolean(options.includeStockBefore) }),
   })
 
   const responseText = await response.text()

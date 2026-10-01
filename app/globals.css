@@ -4128,3 +4128,437 @@ html[data-theme="dark"] .status-badge--neutral {
   border-color: rgba(255, 255, 255, 0.10);
   background: rgba(148, 163, 184, 0.08);
 }
+
+/* =====================================================================
+   原価計算パネル
+   ===================================================================== */
+.cost-panel {
+  margin-top: 22px;
+}
+
+.cost-panel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.cost-head-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.cost-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cost-pill--danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.cost-pill--warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.cost-muted {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.cost-footnote {
+  font-size: 12px;
+}
+
+.cost-issue {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cost-issue--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.cost-issue--warning {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.cost-issue--info {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.cost-link-button {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.cost-shipments {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.cost-shipment {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+}
+
+.cost-shipment header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.cost-shipment header small {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.cost-shipment dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.cost-shipment dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.cost-shipment dt {
+  color: var(--muted);
+}
+
+.cost-shipment dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cost-shipment dd small {
+  color: var(--muted);
+}
+
+.cost-shipment .cost-danger dt,
+.cost-shipment .cost-danger dd {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.cost-registration {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+}
+
+.cost-registration > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.cost-registration small {
+  color: var(--muted);
+}
+
+.cost-registration--done {
+  background: var(--good-soft);
+}
+
+.cost-registration--error {
+  background: var(--danger-soft);
+}
+
+.cost-registration--error strong {
+  color: var(--danger);
+}
+
+.cost-registration button,
+.cost-editor button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cost-editor button.cost-secondary {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--text);
+}
+
+.cost-issues {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.cost-issue-card {
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warn);
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+}
+
+.cost-issue-card--error {
+  border-left-color: var(--danger);
+}
+
+.cost-issue-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cost-issue-card p small {
+  margin-right: 8px;
+  color: var(--muted);
+}
+
+.cost-issue-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cost-issue-card--error .cost-issue-badge {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.cost-line-info {
+  margin-top: 6px !important;
+  color: var(--muted);
+  font-size: 12px !important;
+  overflow-wrap: anywhere;
+}
+
+.cost-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.cost-editor-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cost-editor-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.cost-editor-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.cost-editor input,
+.cost-material-qty {
+  width: 96px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-editor-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.cost-material-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cost-material-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.cost-material-option.is-checked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.cost-material-option input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+}
+
+.cost-material-option em {
+  color: var(--accent);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.cost-material-option .cost-material-qty {
+  width: 56px;
+  min-height: 28px;
+}
+
+.cost-material-option small {
+  color: var(--muted);
+}
+
+.cost-material-more summary {
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cost-material-more .cost-material-options {
+  margin-top: 8px;
+}
+
+.cost-table-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.cost-table-head small {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.cost-table-wrap {
+  max-height: 560px;
+  margin-top: 10px;
+}
+
+.cost-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-table .cost-code {
+  font-weight: 700;
+}
+
+.cost-row--error td {
+  background: var(--danger-soft);
+}
+
+.cost-row--warning td {
+  background: var(--warn-soft);
+}
+
+.cost-status {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cost-status--warning {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.cost-status--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.cost-row-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: normal;
+  max-width: 280px;
+}
+
+@media (max-width: 640px) {
+  .cost-registration {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cost-head-pills {
+    justify-content: flex-start;
+  }
+}
+
+html[data-theme="dark"] .cost-table td {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .cost-table .cost-row-note,
+html[data-theme="dark"] .cost-table td:nth-child(2) {
+  color: var(--muted);
+}

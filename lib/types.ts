@@ -1,3 +1,5 @@
+import type { ShipmentCostSource } from "./costTypes";
+
 export type FileRole = "packing" | "unknown";
 
 export type SelectedFiles = {
@@ -112,6 +114,8 @@ export type NeUpdateRow = {
   syohin_code: string;
   zaiko_su: number;
   kataban: string;
+  /** 便ごと原価（最新の便）。null/未指定ならNEの原価は変更しない */
+  genka_tnk?: number | null;
 };
 
 export type ProductDbUpdateRow = {
@@ -165,6 +169,9 @@ export type ProcessResult = {
   neRows: NeUpdateRow[];
   productDbUpdateRows: ProductDbUpdateRow[];
   nyukoRows: NyukoListRow[];
+  /** 原価計算用：配送依頼書詳細シートから読んだ便ごとの元データ（古い保存データにはない） */
+  costSources?: ShipmentCostSource[];
+  costSourceErrors?: string[];
 };
 
 export const ORDER_MEMO_COLS = [

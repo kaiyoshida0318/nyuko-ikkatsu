@@ -4,6 +4,8 @@ import {
   buildNyukoRows,
   matchAndConsume,
 } from "./matcher";
+import { parseCostFiles } from "./costParser";
+import type { ShipmentCostSource } from "./costTypes";
 import { parsePackingFiles } from "./parser";
 import { fetchProductHubRecords } from "./productHub";
 import type {
@@ -99,6 +101,7 @@ async function buildProcessResultFromRows(
   productHubSettings: ProductHubSettings,
   corrections: RowCorrectionMap = {},
   manualRows: ExtractedRow[] = [],
+  costData: { sources?: ShipmentCostSource[]; errors?: string[] } = {},
 ): Promise<ProcessResult> {
   const parsedAndManualRows = [...sourceExtractedRows, ...manualRows];
   const extracted = applyCorrections(parsedAndManualRows, corrections);
@@ -144,6 +147,8 @@ async function buildProcessResultFromRows(
     neRows,
     productDbUpdateRows,
     nyukoRows,
+    costSources: costData.sources,
+    costSourceErrors: costData.errors,
   };
 }
 
@@ -153,6 +158,7 @@ export async function runNyukoProcessFromRows(
   productHubSettings: ProductHubSettings,
   corrections: RowCorrectionMap = {},
   manualRows: ExtractedRow[] = [],
+  costData: { sources?: ShipmentCostSource[]; errors?: string[] } = {},
 ): Promise<ProcessResult> {
   return buildProcessResultFromRows(
     sourceExtractedRows,
@@ -160,6 +166,7 @@ export async function runNyukoProcessFromRows(
     productHubSettings,
     corrections,
     manualRows,
+    costData,
   );
 }
 
@@ -174,11 +181,14 @@ export async function runNyukoProcess(
   }
 
   const parsed = await parsePackingFiles(files.packingFiles);
+  // 原価計算用の元データ（配送依頼書詳細シート）。読めなくても入庫処理は止めない。
+  const cost = await parseCostFiles(files.packingFiles);
   return buildProcessResultFromRows(
     parsed.extracted,
     parsed.otherRows,
     productHubSettings,
     corrections,
     manualRows,
+    cost,
   );
 }

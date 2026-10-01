@@ -12,6 +12,16 @@ import {
   useState,
 } from "react";
 import { saveAs } from "file-saver";
+import CostPanel, { type CostRegistrationState } from "@/components/CostPanel";
+import { computeCosts } from "@/lib/costing";
+import {
+  buildCostRegistrationPayload,
+  fetchCostRules,
+  registerCostReceipt,
+  saveMaterialRule,
+  saveUnitRule,
+} from "@/lib/costStore";
+import type { CostRules, MaterialRule, NeStockBefore } from "@/lib/costTypes";
 import { detectFileRole } from "@/lib/fileRoles";
 import { makeNyukoXlsxBlob, makeZipBlob } from "@/lib/formatter";
 import {
@@ -108,7 +118,22 @@ type SavedWorkState = {
   reflectStatus: ReflectStatusMap;
   reflectError: string | null;
   neReauthUrl: string | null;
+  /** 原価：NE更新時に固定した便の登録内容と状態（古い保存データにはない） */
+  costRegistration?: CostRegistrationState | null;
 };
+
+const emptyCostRules: CostRules = { unitRules: {}, materialRules: {} };
+
+function normalizeCostRegistration(value: unknown): CostRegistrationState | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as CostRegistrationState;
+  if (!state.payload || !Array.isArray(state.payload.lots)) return null;
+  if (state.status === "updating") {
+    // 登録中に画面を閉じた場合。登録は二重にならないので再試行できる。
+    return { ...state, status: "error", message: "登録中に中断されました。「再試行」を押してください。" };
+  }
+  return state;
+}
 
 function getInitialUiTheme(): UiTheme {
   if (typeof window === "undefined") return "light";
@@ -188,6 +213,7 @@ function readSavedWorkState(): SavedWorkState | null {
         typeof parsed.reflectError === "string" ? parsed.reflectError : null,
       neReauthUrl:
         typeof parsed.neReauthUrl === "string" ? parsed.neReauthUrl : null,
+      costRegistration: normalizeCostRegistration(parsed.costRegistration),
     };
   } catch (err) {
     console.warn("Saved work state restore failed:", err);
@@ -1518,6 +1544,11 @@ export default function NyukoApp() {
   const [reflectError, setReflectError] = useState<string | null>(null);
   const [neReauthUrl, setNeReauthUrl] = useState<string | null>(null);
   const [workStateNotice, setWorkStateNotice] = useState<string | null>(null);
+  const [costRules, setCostRules] = useState<CostRules>(emptyCostRules);
+  const [costRulesLoading, setCostRulesLoading] = useState(false);
+  const [costRulesError, setCostRulesError] = useState<string | null>(null);
+  const [costRegistration, setCostRegistration] =
+    useState<CostRegistrationState | null>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
   const hasCheckedSavedWorkStateRef = useRef(false);
   const isLoggedIn = Boolean(productHubSettings.accessToken);
@@ -1657,6 +1688,27 @@ export default function NyukoApp() {
     }
   }
 
+  async function loadCostRules() {
+    setCostRulesLoading(true);
+    try {
+      setCostRules(await fetchCostRules());
+      setCostRulesError(null);
+    } catch (err) {
+      setCostRulesError(
+        err instanceof Error ? err.message : "原価ルールを読み込めませんでした。",
+      );
+    } finally {
+      setCostRulesLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (authLoading || !isLoggedIn) return;
+    void loadCostRules();
+    // ログイン時に1回読み込む（保存のたびに再読み込みする）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, isLoggedIn]);
+
   useEffect(() => {
     if (authLoading || !isLoggedIn) return;
     void runNeConnectionTest();
@@ -1691,6 +1743,7 @@ export default function NyukoApp() {
     setReflectStatus(savedState.reflectStatus);
     setReflectError(savedState.reflectError);
     setNeReauthUrl(savedState.neReauthUrl);
+    setCostRegistration(savedState.costRegistration ?? null);
     setError(null);
     setWorkStateNotice(
       "前回の作業状態を復元しました。必要ならこのまま更新・出力を続行できます。",
@@ -1710,6 +1763,7 @@ export default function NyukoApp() {
       reflectStatus,
       reflectError,
       neReauthUrl,
+      costRegistration,
     });
 
     if (!saved) {
@@ -1720,6 +1774,7 @@ export default function NyukoApp() {
   }, [
     activeTab,
     corrections,
+    costRegistration,
     manualRows,
     neReauthUrl,
     reflectError,
@@ -1733,6 +1788,7 @@ export default function NyukoApp() {
     setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
+    setCostRegistration(null);
     setReflectError(null);
     setWorkStateNotice(null);
     clearSavedWorkState();
@@ -1801,6 +1857,7 @@ export default function NyukoApp() {
     setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
+    setCostRegistration(null);
     setReflectError(null);
     setWorkStateNotice(null);
     clearSavedWorkState();
@@ -1830,6 +1887,7 @@ export default function NyukoApp() {
     setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
+    setCostRegistration(null);
     setReflectError(null);
     setWorkStateNotice(null);
     clearSavedWorkState();
@@ -1911,6 +1969,7 @@ export default function NyukoApp() {
               productHubSettings,
               nextCorrections,
               nextManualRows,
+              { sources: result.costSources, errors: result.costSourceErrors },
             )
           : await runNyukoProcess(
               files,
@@ -1997,6 +2056,7 @@ export default function NyukoApp() {
     setManualRows([]);
     setCorrections({});
     setReflectStatus(initialReflectStatus);
+    setCostRegistration(null);
     setReflectError(null);
     setNeReauthUrl(null);
     setWorkStateNotice(null);
@@ -2057,6 +2117,33 @@ ${detail}`);
     updateReflectStatus(key, "skipped");
   }
 
+  async function runCostRegistration(state: CostRegistrationState) {
+    setCostRegistration({ ...state, status: "updating", message: "Supabaseへ登録しています…" });
+    try {
+      const registered = await registerCostReceipt(state.payload);
+      setCostRegistration({
+        ...state,
+        status: "done",
+        result: registered,
+        message: `${state.payload.shipments.length}便・${state.payload.lots.length}件の原価をもとに、NEの在庫数と照合して登録しました。`,
+      });
+    } catch (err) {
+      setCostRegistration({
+        ...state,
+        status: "error",
+        message:
+          err instanceof Error
+            ? err.message
+            : "便ごとの在庫の登録中にエラーが発生しました。",
+      });
+    }
+  }
+
+  async function retryCostRegistration() {
+    if (!costRegistration || costRegistration.status === "updating") return;
+    await runCostRegistration(costRegistration);
+  }
+
   async function updateNeByApi() {
     if (
       !result ||
@@ -2070,14 +2157,33 @@ ${detail}`);
       return;
     }
 
+    const costErrors = costResult?.issues.filter((issue) => issue.level === "error") ?? [];
+    if (costResult && costErrors.length > 0) {
+      const proceed = window.confirm(
+        `原価計算に要対応が${costErrors.length}件あります。
+要対応の商品はNEの原価を更新せず、便は「要確認」として登録します。
+このままNEを更新しますか？`,
+      );
+      if (!proceed) return;
+    }
+
+    // NEへ送る内容と便の登録内容をこの時点の計算結果で固定する
+    const neCodesLc = new Set(result.neRows.map((row) => row.syohin_code.toLowerCase()));
+    const plan = costResult
+      ? buildCostRegistrationPayload(costResult, neCodesLc)
+      : null;
+
     setReflectError(null);
     setNeReauthUrl(null);
     updateReflectStatus("ne", "updating");
+    let stockBefore: NeStockBefore[] | null = null;
     try {
-      await updateNextEngineByApi(
+      const response = await updateNextEngineByApi(
         productHubSettings.accessToken,
-        result.neRows,
+        neRowsWithGenka,
+        { includeStockBefore: Boolean(plan && plan.payload.lots.length > 0) },
       );
+      stockBefore = response.stockBefore ?? null;
       updateReflectStatus("ne", "done");
       setNeConnection((current) => ({
         ...current,
@@ -2107,6 +2213,26 @@ ${detail}`);
           ? err.message
           : "NE API更新中にエラーが発生しました。",
       );
+      return;
+    }
+
+    if (plan && plan.payload.lots.length > 0) {
+      if (!stockBefore) {
+        setCostRegistration({
+          status: "error",
+          payload: { ...plan.payload, stock: [] },
+          skippedCodes: plan.skippedCodes,
+          message:
+            "NE Workerが入庫前の在庫数を返しませんでした（Workerが古い可能性があります）。Workerを更新してから「再試行」すると、在庫照合なしで便を登録します。",
+        });
+        return;
+      }
+      await runCostRegistration({
+        status: "updating",
+        payload: { ...plan.payload, stock: stockBefore },
+        skippedCodes: plan.skippedCodes,
+        message: "",
+      });
     }
   }
 
@@ -2160,16 +2286,51 @@ ${detail}`);
     }
   }
 
+  const costResult = useMemo(() => {
+    if (!result?.costSources || result.costSources.length === 0) return null;
+    return computeCosts(result.costSources, result.extracted, costRules);
+  }, [result, costRules]);
+
+  const neRowsWithGenka = useMemo(() => {
+    if (!result) return [];
+    const genkaByCode = new Map(
+      (costResult?.neGenka ?? []).map((row) => [row.productCode.toLowerCase(), row.genkaTnk]),
+    );
+    return result.neRows.map((row) => ({
+      ...row,
+      genka_tnk: genkaByCode.get(row.syohin_code.toLowerCase()) ?? null,
+    }));
+  }, [result, costResult]);
+
+  async function handleSaveUnitRules(
+    values: Array<{ productCode: string; piecesPerUnit: number }>,
+  ) {
+    for (const value of values) {
+      await saveUnitRule(value.productCode, value.piecesPerUnit);
+    }
+    await loadCostRules();
+  }
+
+  async function handleSaveMaterialRule(rule: MaterialRule) {
+    await saveMaterialRule(rule);
+    await loadCostRules();
+  }
+
   const previewRows: Record<string, unknown>[] = useMemo(() => {
     if (!result) return [];
     if (activeTab === "extracted") return toExtractedPreview(result.extracted);
     if (activeTab === "other") return toOtherPreview(getEffectiveOtherRows());
     if (activeTab === "ne")
-      return result.neRows as unknown as Record<string, unknown>[];
+      return neRowsWithGenka.map((row) => ({
+        syohin_code: row.syohin_code,
+        zaiko_su: row.zaiko_su,
+        kataban: row.kataban,
+        genka_tnk: row.genka_tnk ?? "（変更なし）",
+      }));
     if (activeTab === "productDb")
       return result.productDbUpdateRows as unknown as Record<string, unknown>[];
     return result.nyukoRows as unknown as Record<string, unknown>[];
-  }, [activeTab, result, corrections]);
+  }, [activeTab, result, corrections, neRowsWithGenka]);
 
   const isProductDbComplete = isReflectStepPassed(reflectStatus.productDb);
   const isNeComplete = isReflectStepPassed(reflectStatus.ne);
@@ -2473,6 +2634,23 @@ ${detail}`);
       )}
 
       {result && (
+        <CostPanel
+          cost={costResult}
+          hasCostSources={Boolean(result.costSources && result.costSources.length > 0)}
+          sourceErrors={result.costSourceErrors ?? []}
+          rules={costRules}
+          rulesLoading={costRulesLoading}
+          rulesError={costRulesError}
+          locked={isReflectStepPassed(reflectStatus.ne)}
+          registration={costRegistration}
+          onSaveUnitRules={handleSaveUnitRules}
+          onSaveMaterialRule={handleSaveMaterialRule}
+          onReloadRules={() => void loadCostRules()}
+          onRetryRegistration={() => void retryCostRegistration()}
+        />
+      )}
+
+      {result && (
         <section className="reflect-panel">
           <div className="section-title-row">
             <div>
@@ -2589,6 +2767,11 @@ ${detail}`);
               <small>
                 NE商品マスタアップロードAPIへ直接送信します。CSV出力とNE画面での手動アップロードは不要です。
               </small>
+              {costResult && (
+                <small>
+                  原価 {neRowsWithGenka.filter((row) => row.genka_tnk !== null).length}件も一緒に更新し、続けて便ごとの在庫を登録します。
+                </small>
+              )}
               {!canOperateNe && (
                 <small>
                   商品DB更新が完了またはスキップされると操作できます。
