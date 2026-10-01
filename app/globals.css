@@ -4595,3 +4595,61 @@ html[data-theme="dark"] .cost-table td:nth-child(2) {
   color: var(--good);
   font-weight: 700;
 }
+
+/* 本体が届いていない可能性があるため入庫から外した行 */
+.not-arrived-card {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-md);
+  background: var(--warn-soft);
+}
+
+.not-arrived-head {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.not-arrived-head span {
+  color: var(--muted);
+}
+
+.not-arrived-card ul {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.not-arrived-card li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--panel-strong);
+}
+
+.not-arrived-card li > div {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.not-arrived-card li p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.not-arrived-key {
+  font-weight: 700;
+}
+
+.not-arrived-card li small {
+  color: var(--muted);
+}

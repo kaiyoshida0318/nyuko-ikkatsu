@@ -240,11 +240,56 @@ async function getPackingImagesByRow(
   return imageByRow;
 }
 
+/**
+ * 1ファイル（1便）の中で「付属品の行にしか出てこない」バリエーションを見つける。
+ * 例：ケース・やすりの行に S/L 両方の●▲が書かれていて、本体はLの行しかない便
+ *   → S はこの便では届いていない（付属品だけ）とみなす。
+ * 判定：そのコードが他のコードと共有する行にしか出てこない、かつ、共有している別のコードには
+ *       そのコードだけの行（本体）がこの便にある。
+ * 両方とも共有行にしか出てこない場合（1行で2商品まとめて頼んだ場合など）は外さない。
+ */
+function findAccessoryOnlyTokens(
+  groupTokens: Map<string, Set<string>>,
+  labelByToken: Map<string, string>,
+): Map<string, string> {
+  const tokenGroups = new Map<string, Set<string>>();
+  for (const [group, tokens] of groupTokens) {
+    for (const token of tokens) {
+      const set = tokenGroups.get(token) ?? new Set<string>();
+      set.add(group);
+      tokenGroups.set(token, set);
+    }
+  }
+  const hasOwnRow = (token: string) =>
+    [...(tokenGroups.get(token) ?? [])].some((group) => groupTokens.get(group)?.size === 1);
+
+  const result = new Map<string, string>();
+  for (const [token, groups] of tokenGroups) {
+    if (hasOwnRow(token)) continue;
+    const partners = new Set<string>();
+    for (const group of groups) {
+      for (const other of groupTokens.get(group) ?? []) {
+        if (other !== token && hasOwnRow(other)) partners.add(other);
+      }
+    }
+    if (partners.size === 0) continue;
+    const partnerLabels = [...partners].map((p) => labelByToken.get(p) ?? p).join("・");
+    result.set(
+      token,
+      `この便では ${labelByToken.get(token) ?? token} は付属品（共有の行）にしか出てこず、本体の行がありません。` +
+        `同じ付属品の行にある ${partnerLabels} には本体の行があるため、届いたのはそちらだけと判断して入庫から外しました。`,
+    );
+  }
+  return result;
+}
+
 export async function parsePackingFiles(
   files: File[],
 ): Promise<PackingParseResult> {
   const unique = new Map<string, PackingAccumulator>();
   const otherRows: OtherPackingRow[] = [];
+  // uniqueKey → [付属品だけと判定された便の数, 出てきた便の数, 理由]
+  const accessoryOnly = new Map<string, { suspect: number; seen: number; reasons: string[] }>();
 
   for (const file of files) {
     const buffer = await file.arrayBuffer();
@@ -287,6 +332,10 @@ export async function parsePackingFiles(
     if (headerRowIndex < 0 || noteColIndex < 0) {
       throw new Error(`${file.name}: 「箱詰め備考」列が見つかりません。`);
     }
+
+    // この便の「行（注文番号+商品番号）→ その行の●▲」
+    const groupTokens = new Map<string, Set<string>>();
+    const labelByToken = new Map<string, string>();
 
     for (
       let rowIndex = headerRowIndex + 1;
@@ -340,6 +389,10 @@ export async function parsePackingFiles(
         const productCodeLc = productCode.toLowerCase();
         const key = `${mmdd}-${quantity}`;
         const uniqueKey = `${productCodeLc}__${mmdd}__${quantity}`;
+        const tokensInGroup = groupTokens.get(packedGroupKey) ?? new Set<string>();
+        tokensInGroup.add(uniqueKey);
+        groupTokens.set(packedGroupKey, tokensInGroup);
+        labelByToken.set(uniqueKey, `${productCode}（${key}）`);
         const current = unique.get(uniqueKey) ?? {
           productCode,
           productCodeLc,
@@ -360,6 +413,18 @@ export async function parsePackingFiles(
 
         unique.set(uniqueKey, current);
       }
+    }
+
+    const suspects = findAccessoryOnlyTokens(groupTokens, labelByToken);
+    for (const token of labelByToken.keys()) {
+      const entry = accessoryOnly.get(token) ?? { suspect: 0, seen: 0, reasons: [] };
+      entry.seen += 1;
+      const reason = suspects.get(token);
+      if (reason) {
+        entry.suspect += 1;
+        entry.reasons.push(`${file.name}: ${reason}`);
+      }
+      accessoryOnly.set(token, entry);
     }
   }
 
@@ -389,6 +454,13 @@ export async function parsePackingFiles(
         quantityMismatch,
         sourceNote: row.sourceNote,
         sourceFile: row.sourceFile,
+        // 読み込んだすべての便で「付属品だけ」と判定されたときだけ外す
+        ...(() => {
+          const entry = accessoryOnly.get(`${row.productCodeLc}__${row.mmdd}__${row.quantity}`);
+          return entry && entry.seen > 0 && entry.suspect === entry.seen
+            ? { notArrivedReason: entry.reasons.join(" / ") }
+            : {};
+        })(),
       };
     })
     .sort((a, b) => {

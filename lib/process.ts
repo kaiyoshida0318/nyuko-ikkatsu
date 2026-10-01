@@ -41,6 +41,8 @@ function applyCorrections(
 ): ExtractedRow[] {
   return extracted.flatMap((row) => {
     const correction = corrections[row.rowId];
+    // 本体が届いていない可能性がある行は、手動で戻さない限り入庫しない
+    if (row.notArrivedReason && !correction?.restored) return [];
     if (!correction) return [row];
     if (correction.deleted) return [];
 

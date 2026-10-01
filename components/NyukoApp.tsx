@@ -885,7 +885,7 @@ function buildEditableRows(result: ProcessResult): EditableExtractedRow[] {
 
 function getCorrectionValue(
   correction: RowCorrection | undefined,
-  key: Exclude<keyof RowCorrection, "deleted">,
+  key: Exclude<keyof RowCorrection, "deleted" | "restored">,
   fallback: string,
 ) {
   const value = correction?.[key];
@@ -1063,6 +1063,7 @@ function ExtractedRowsEditPanel({
   onDeleteRow,
   onAddManualRow,
   onApply,
+  onSetRestored,
   isProcessing,
 }: {
   result: ProcessResult;
@@ -1070,6 +1071,7 @@ function ExtractedRowsEditPanel({
   onChange: (rowId: string, patch: RowCorrection) => void;
   onResetRow: (rowId: string) => void;
   onDeleteRow: (rowId: string) => void;
+  onSetRestored: (rowId: string, restored: boolean) => void;
   onAddManualRow: (draft: ManualExtractedRowDraft) => void;
   onApply: () => void;
   isProcessing: boolean;
@@ -1084,6 +1086,17 @@ function ExtractedRowsEditPanel({
   const otherRows = useMemo(
     () => result.otherRows.filter((row) => !corrections[row.rowId]?.deleted),
     [result.otherRows, corrections],
+  );
+  // 本体が届いていない可能性があるため入庫から外している行
+  const notArrivedRows = useMemo(
+    () =>
+      (result.sourceExtractedRows ?? []).filter(
+        (row) =>
+          row.notArrivedReason &&
+          !corrections[row.rowId]?.restored &&
+          !corrections[row.rowId]?.deleted,
+      ),
+    [result.sourceExtractedRows, corrections],
   );
   const productHubIndex = useMemo(() => {
     const map = new Map<string, ProductHubRecord>();
@@ -1115,7 +1128,7 @@ function ExtractedRowsEditPanel({
     setManualDraft(emptyManualDraft);
   }
 
-  if (rows.length === 0 && otherRows.length === 0) return null;
+  if (rows.length === 0 && otherRows.length === 0 && notArrivedRows.length === 0) return null;
 
   const warningRowCount = rows.filter(
     (item) => item.warningLabels.length > 0,
@@ -1204,6 +1217,40 @@ function ExtractedRowsEditPanel({
         </div>
       </div>
 
+      {notArrivedRows.length > 0 && (
+        <div className="not-arrived-card" role="region" aria-label="入庫から外した行">
+          <div className="not-arrived-head">
+            <strong>本体が届いていない可能性があるため、入庫から外した行 {notArrivedRows.length}件</strong>
+            <span>
+              ケースなどの付属品の行にしか出てこず、同じ付属品を使う別のバリエーションには本体の行がある商品です。
+              NEの在庫・オーダーの消し込み・原価の対象にしていません。実際に届いていれば「入庫に戻す」を押してください。
+            </span>
+          </div>
+          <ul>
+            {notArrivedRows.map((row) => (
+              <li key={row.rowId}>
+                <div>
+                  <strong>{row.productCode}</strong>
+                  <span className="not-arrived-key">{row.key}</span>
+                  <small>
+                    梱包数 {row.packingQuantities.length ? row.packingQuantities.join(" / ") : "未取得"}・{row.sourceFile}
+                  </small>
+                  <p>{row.notArrivedReason}</p>
+                </div>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => onSetRestored(row.rowId, true)}
+                  disabled={isProcessing}
+                >
+                  入庫に戻す
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {rows.length > 0 && (
         <div
           className="warning-fix-table-wrap"
@@ -1281,6 +1328,9 @@ function ExtractedRowsEditPanel({
                           ))
                         ) : (
                           <span>OK</span>
+                        )}
+                        {row.notArrivedReason && (
+                          <span title={row.notArrivedReason}>手動で入庫に戻した</span>
                         )}
                       </div>
                     </td>
@@ -1370,14 +1420,25 @@ function ExtractedRowsEditPanel({
                         >
                           元に戻す
                         </button>
-                        <button
-                          className="secondary-button warning-delete-button"
-                          type="button"
-                          onClick={() => onDeleteRow(row.rowId)}
-                          disabled={isProcessing}
-                        >
-                          削除
-                        </button>
+                        {row.notArrivedReason ? (
+                          <button
+                            className="secondary-button warning-delete-button"
+                            type="button"
+                            onClick={() => onSetRestored(row.rowId, false)}
+                            disabled={isProcessing}
+                          >
+                            外す
+                          </button>
+                        ) : (
+                          <button
+                            className="secondary-button warning-delete-button"
+                            type="button"
+                            onClick={() => onDeleteRow(row.rowId)}
+                            disabled={isProcessing}
+                          >
+                            削除
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1939,6 +2000,22 @@ export default function NyukoApp() {
       [rowId]: {
         ...(corrections[rowId] ?? {}),
         deleted: true,
+      },
+    };
+    setCorrections(nextCorrections);
+    await runWithCorrections(nextCorrections, {
+      keepActiveTab: true,
+      keepCurrentResult: true,
+      preserveScroll: true,
+    });
+  }
+
+  async function setRowRestored(rowId: string, restored: boolean) {
+    const nextCorrections: RowCorrectionMap = {
+      ...corrections,
+      [rowId]: {
+        ...(corrections[rowId] ?? {}),
+        restored,
       },
     };
     setCorrections(nextCorrections);
@@ -2708,6 +2785,7 @@ ${detail}`);
           onChange={updateCorrection}
           onResetRow={resetCorrection}
           onDeleteRow={deleteRow}
+          onSetRestored={(rowId, restored) => void setRowRestored(rowId, restored)}
           onAddManualRow={addManualRow}
           onApply={handleApplyCorrections}
           isProcessing={isProcessing}

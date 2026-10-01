@@ -25,6 +25,12 @@ export type ExtractedRow = {
   quantityMismatch: boolean;
   sourceNote: string;
   sourceFile: string;
+  /**
+   * 本体が届いていない可能性があるため、既定で入庫から外す理由。
+   * 付属品（ケース等）の行にしか出てこず、同じ行の別バリエーションには本体の行がある場合に付く。
+   * 手動で「入庫に戻す」（RowCorrection.restored）と入庫対象になる。
+   */
+  notArrivedReason?: string;
 };
 
 export type PackingImage = {
@@ -150,6 +156,8 @@ export type RowCorrection = {
   itemName?: string;
   note?: string;
   deleted?: boolean;
+  /** notArrivedReason で外された行を、手動で入庫に戻した */
+  restored?: boolean;
 };
 
 export type RowCorrectionMap = Record<string, RowCorrection>;
