@@ -416,7 +416,7 @@ export function computeCosts(
         for (const code of liveCodes) {
           const acc = accFor(code);
           acc.hasError = true;
-          acc.messages.add("個数の入力待ち（仮の金額）");
+          acc.messages.add("個数未入力のため仮計算");
         }
       } else {
         weights = liveCodes.map((code) => unitsByCode.get(code)!.units * rules.unitRules[code]);
@@ -435,7 +435,7 @@ export function computeCosts(
           });
           for (const code of liveCodes) {
             accFor(code).hasWarning = true;
-            accFor(code).messages.add("登録した入り数だと個数が合わない");
+            accFor(code).messages.add("保存済みの個数と入荷数が不一致");
           }
         }
       }
@@ -451,7 +451,7 @@ export function computeCosts(
       for (const acc of codeMap.values()) {
         if (acc.shipmentId !== source.shipmentId) continue;
         acc.hasError = true;
-        acc.messages.add("この便に行き先が決まっていない費用があるため保留");
+        acc.messages.add("この便に割当先未設定の費用があるため保留");
       }
     }
 
@@ -484,7 +484,7 @@ export function computeCosts(
       shipmentIds.push(acc.shipmentId);
       if (partial) {
         acc.hasWarning = true;
-        acc.messages.add("一部だけ届いた可能性（届いた数に直すと正しい原価）");
+        acc.messages.add("分納の可能性あり（オーダー数を入荷数に修正）");
       }
     }
     mismatchItems.push({

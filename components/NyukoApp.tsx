@@ -135,7 +135,7 @@ function normalizeCostRegistration(value: unknown): CostRegistrationState | null
   if (!state.payload || !Array.isArray(state.payload.lots)) return null;
   if (state.status === "updating") {
     // 登録中に画面を閉じた場合。登録は二重にならないので再試行できる。
-    return { ...state, status: "error", message: "登録中に中断されました。「再試行」を押してください。" };
+    return { ...state, status: "error", message: "登録中に中断されました。「再試行」を選択してください。" };
   }
   return state;
 }
@@ -1220,10 +1220,10 @@ function ExtractedRowsEditPanel({
       {notArrivedRows.length > 0 && (
         <div className="not-arrived-card" role="region" aria-label="入庫から外した行">
           <div className="not-arrived-head">
-            <strong>本体が届いていない可能性があるため、入庫から外した行 {notArrivedRows.length}件</strong>
+            <strong>本体未入荷の可能性があるため、入庫対象から除外した行 {notArrivedRows.length}件</strong>
             <span>
-              ケースなどの付属品の行にしか出てこず、同じ付属品を使う別のバリエーションには本体の行がある商品です。
-              NEの在庫・オーダーの消し込み・原価の対象にしていません。実際に届いていれば「入庫に戻す」を押してください。
+              ケース等の付属品の行にのみ記載があり、同じ付属品を使用する別のバリエーションには本体の行がある商品です。
+              NEの在庫・オーダーの消し込み・原価計算の対象外としています。入荷済みの場合は「入庫に戻す」を選択してください。
             </span>
           </div>
           <ul>
@@ -2239,8 +2239,8 @@ ${detail}`);
     const shipmentLabels = costResult.shipments.map((s) => s.shipmentId).join("\n");
     const ok = window.confirm(
       `次の便を「原価だけ」登録します（NEの在庫数・型番、商品DBのオーダーは変更しません）。\n${shipmentLabels}\n\n` +
-        (errors.length > 0 ? `原価計算に要対応が${errors.length}件あります。その商品はNEの原価を更新せず、便は「要確認」として登録します。\n\n` : "") +
-        "すでに届いて在庫に入っている便だけを選んでください。続けますか？",
+        (errors.length > 0 ? `原価計算に入力が必要な項目が${errors.length}件あります。該当する商品はNEの原価を更新せず、便は「要確認」として登録します。\n\n` : "") +
+        "入荷済みで在庫に計上されている便のみを対象としてください。続行しますか？",
     );
     if (!ok) return;
 
@@ -2886,9 +2886,9 @@ ${detail}`);
                 </button>
               </div>
               <small>
-                すでに届いて在庫に入っている便を、在庫金額計算くんに「原価だけ」登録します。NEの在庫数・型番と商品DBのオーダーは変更しません。
-                便の登録日は配送依頼書の日付になり、今のNE在庫と照合して、売れた分は古い便から減らします。NE在庫のほうが多い分はその便より前からある在庫（期首在庫）になり、期首在庫の原価は最初に原価計算された便の原価に置き換わります。
-                NEの原価は、もっと新しい便がまだ登録されていない商品だけ更新します。古い便から順に登録してください。
+                入荷済みで在庫に計上されている便を、在庫金額計算くんに原価のみ登録します。NEの在庫数・型番、商品DBのオーダーは変更しません。
+                便の登録日は配送依頼書の日付とし、現在のNE在庫と照合して、出荷済みの分を古い便から差し引きます。NE在庫が便の合計より多い分は、その便より前からの在庫（期首在庫）として登録し、期首在庫の原価は最初に原価計算された便の原価に置き換えます。
+                NEの原価は、より新しい便が未登録の商品のみ更新します。古い便から順に登録してください。
               </small>
               {backfillMessage && <small className="cost-only-ok">{backfillMessage}</small>}
             </article>

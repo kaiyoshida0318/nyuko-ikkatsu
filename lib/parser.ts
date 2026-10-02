@@ -276,8 +276,8 @@ function findAccessoryOnlyTokens(
     const partnerLabels = [...partners].map((p) => labelByToken.get(p) ?? p).join("・");
     result.set(
       token,
-      `この便では ${labelByToken.get(token) ?? token} は付属品（共有の行）にしか出てこず、本体の行がありません。` +
-        `同じ付属品の行にある ${partnerLabels} には本体の行があるため、届いたのはそちらだけと判断して入庫から外しました。`,
+      `この便では ${labelByToken.get(token) ?? token} の記載が付属品（共有の行）のみで、本体の行がありません。` +
+        `同じ付属品の行にある ${partnerLabels} には本体の行があるため、入荷したのは ${partnerLabels} のみと判断し、入庫対象から除外しました。`,
     );
   }
   return result;

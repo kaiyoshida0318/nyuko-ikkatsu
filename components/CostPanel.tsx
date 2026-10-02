@@ -102,7 +102,7 @@ export default function CostPanel(props: CostPanelProps) {
           <h2>原価計算</h2>
         </div>
         <div className="cost-head-pills">
-          <span className="cost-pill">NEに入れる原価 {cost?.neGenka.length ?? 0}件</span>
+          <span className="cost-pill">NE登録原価 {cost?.neGenka.length ?? 0}件</span>
           {errors.length > 0 && <span className="cost-pill cost-pill--danger">入力が必要 {errors.length}</span>}
           {warnings.length > 0 && <span className="cost-pill cost-pill--warn">確認 {warnings.length}</span>}
         </div>
@@ -111,20 +111,20 @@ export default function CostPanel(props: CostPanelProps) {
       <div className={`cost-summary cost-summary--${errors.length > 0 ? "error" : warnings.length > 0 ? "warning" : "ok"}`}>
         {errors.length > 0 ? (
           <>
-            <strong>あと{errors.length}か所、教えてほしいことがあります</strong>
+            <strong>入力が必要な項目が{errors.length}件あります</strong>
             <span>
-              下の「入力が必要」に答えると原価が確定します。答えるまでは、その分の商品（{heldCount}件）はNEの原価を変えずに「保留」にします。
-              一度答えた内容は保存され、次からは自動で使われます。
+              下記の「入力が必要」の項目を入力すると原価が確定します。未入力の間、該当する商品（{heldCount}件）はNEの原価を更新せず「保留」とします。
+              入力内容は保存され、次回以降は自動で適用されます。
             </span>
           </>
         ) : warnings.length > 0 ? (
           <>
-            <strong>原価はすべて計算できました。念のため{warnings.length}か所を確認してください</strong>
-            <span>確認だけで、答えなくても先に進めます。</span>
+            <strong>原価の計算が完了しました（確認事項 {warnings.length}件）</strong>
+            <span>確認事項は入力不要です。内容を確認のうえ、そのまま次に進めます。</span>
           </>
         ) : (
           <>
-            <strong>原価はすべて計算できました</strong>
+            <strong>原価の計算が完了しました</strong>
             <span>このままNE更新に進めます。</span>
           </>
         )}
@@ -133,18 +133,18 @@ export default function CostPanel(props: CostPanelProps) {
       <details className="cost-howto">
         <summary>原価の計算方法</summary>
         <p>
-          1個あたりの原価 ＝（単価×届いた数 ＋ オプション費用 ＋ 中国内の送料 ＋ 国際送料）÷ 届いた数。中国の元は配送依頼書のレートで円にしています。
+          1個あたりの原価 ＝（単価×入荷数 ＋ オプション費用 ＋ 中国国内送料 ＋ 国際送料）÷ 入荷数。人民元は配送依頼書のレートで円換算しています。
         </p>
         <ul>
-          <li>中国内の送料：便全体の合計を、商品代金の比率で配ります。</li>
-          <li>国際送料：箱ごとの請求重量で箱に配り、箱の中では商品代金の比率で配ります。</li>
-          <li>NEに入れるのは、各商品の一番新しい便の原価（整数）です。</li>
+          <li>中国国内送料：便全体の合計を商品代金の比率で按分します。</li>
+          <li>国際送料：箱ごとの請求重量で按分し、同じ箱の中では商品代金の比率で按分します。</li>
+          <li>NEに登録する原価は、各商品の最新の便の原価（整数）です。</li>
         </ul>
       </details>
 
       {props.rulesError && (
         <p className="cost-issue cost-issue--error">
-          保存してある答え（個数・付属品の行き先）を読み込めませんでした：{props.rulesError}
+          保存済みの設定（個数・付属品の割当先）を読み込めませんでした：{props.rulesError}
           <button type="button" className="cost-link-button" onClick={props.onReloadRules}>再読み込み</button>
         </p>
       )}
@@ -153,13 +153,13 @@ export default function CostPanel(props: CostPanelProps) {
       ))}
       {props.locked && (
         <p className="cost-issue cost-issue--info">
-          NE更新は終わっています。ここで答えを変えても今回の分には反映されず、次回から使われます。
+          NE更新は完了しています。ここで設定を変更しても今回分には反映されず、次回以降に適用されます。
         </p>
       )}
 
       {props.registration && <RegistrationBox state={props.registration} onRetry={props.onRetryRegistration} />}
 
-      {props.rulesLoading && <p className="cost-muted">保存してある答えを読み込み中…</p>}
+      {props.rulesLoading && <p className="cost-muted">保存済みの設定を読み込み中…</p>}
 
       {allIssues.length > 0 && (
         <div className="cost-issues">
@@ -185,7 +185,7 @@ export default function CostPanel(props: CostPanelProps) {
               <small>{s.shipmentId}</small>
             </header>
             <dl>
-              <div><dt>この便の費用の合計</dt><dd>{yen(s.totalJpy)}</dd></div>
+              <div><dt>費用合計</dt><dd>{yen(s.totalJpy)}</dd></div>
               <div><dt>レート（1元）</dt><dd>{s.rate}円</dd></div>
               <div>
                 <dt>国際送料</dt>
@@ -194,10 +194,10 @@ export default function CostPanel(props: CostPanelProps) {
                   {s.chargeableKg > 0 && <small> / {s.chargeableKg}kg（{yen(s.intlFreightJpy / s.chargeableKg, 1)}/kg）</small>}
                 </dd>
               </div>
-              <div><dt>国際送料の分け方</dt><dd>{s.intlMethod === "box" ? "箱の重さ" : "商品代金の比率"}</dd></div>
+              <div><dt>国際送料の按分</dt><dd>{s.intlMethod === "box" ? "箱の請求重量" : "商品代金の比率"}</dd></div>
               {s.ignoredJpy > 0.5 && <div><dt>原価に含めない費用</dt><dd>{yen(s.ignoredJpy)}</dd></div>}
               {s.unallocatedJpy > 0.5 && (
-                <div className="cost-danger"><dt>行き先が決まっていない費用</dt><dd>{yen(s.unallocatedJpy)}</dd></div>
+                <div className="cost-danger"><dt>割当先未設定の費用</dt><dd>{yen(s.unallocatedJpy)}</dd></div>
               )}
             </dl>
           </article>
@@ -223,13 +223,13 @@ export default function CostPanel(props: CostPanelProps) {
             <tr>
               <th>商品コード</th>
               <th>便</th>
-              <th className="num">届いた数</th>
+              <th className="num">入荷数</th>
               <th className="num">商品代</th>
               <th className="num">オプション</th>
-              <th className="num">中国内送料</th>
+              <th className="num">中国国内送料</th>
               <th className="num">国際送料</th>
-              <th className="num">1個の原価</th>
-              <th className="num">NEに入れる原価</th>
+              <th className="num">1個あたり原価</th>
+              <th className="num">NE登録原価</th>
               <th>状態</th>
             </tr>
           </thead>
@@ -260,8 +260,8 @@ export default function CostPanel(props: CostPanelProps) {
         </table>
       </div>
       <p className="cost-muted cost-footnote">
-        「NEに入れる原価」の「—」は、同じ商品がもっと新しい便にもあるもの（NEには新しい便の原価を入れます）。
-        「保留」は答えが必要なところが残っている商品で、NEの原価は今のまま変えません。
+        「NE登録原価」が「—」の行は、同じ商品がより新しい便にも含まれるものです（NEには最新の便の原価を登録します）。
+        「保留」は入力が必要な項目が残っている商品で、NEの原価は更新しません。
       </p>
     </section>
   );
@@ -340,10 +340,10 @@ function IssueCard({
 
       {issue.line && (
         <dl className="cost-line-facts">
-          <div><dt>配送依頼書の行</dt><dd>{issue.line.lineNo}行目（注文の商品番号 {issue.line.itemNo}）</dd></div>
-          <div><dt>中身</dt><dd>{issue.line.productInfo.replace(/\n/g, " ") || "—"}</dd></div>
-          <div><dt>届いた数</dt><dd>{count(issue.line.shipQty)}個（単価 {issue.line.unitPriceCny}元）</dd></div>
-          {issue.amountJpy !== undefined && <div><dt>この行の費用</dt><dd>{yen(issue.amountJpy)}</dd></div>}
+          <div><dt>配送依頼書</dt><dd>{issue.line.lineNo}行目（商品番号 {issue.line.itemNo}）</dd></div>
+          <div><dt>商品情報</dt><dd>{issue.line.productInfo.replace(/\n/g, " ") || "—"}</dd></div>
+          <div><dt>入荷数</dt><dd>{count(issue.line.shipQty)}個（単価 {issue.line.unitPriceCny}元）</dd></div>
+          {issue.amountJpy !== undefined && <div><dt>費用</dt><dd>{yen(issue.amountJpy)}</dd></div>}
           {issue.line.note && (
             <div><dt>箱詰め備考</dt><dd className="cost-line-note">{issue.line.note}</dd></div>
           )}
@@ -374,65 +374,64 @@ function describeIssue(issue: CostIssue): { title: string; body: string } {
   switch (issue.kind) {
     case "missing_unit_rule":
       return {
-        title: "1つの行に、2つ以上の商品がまとめて入っています",
+        title: "1行に複数の商品が含まれています",
         body:
-          `この行で届いた${count(issue.line?.shipQty ?? 0)}個は、${codes} で分け合うものです。` +
-          "金額をどう分けるか決めるために、それぞれの商品が「NEで1個」と数えるときに、この行の品物を何個使うかを入れてください。" +
-          "（例：4枚で1セットの商品なら 4）",
+          `この行の入荷数 ${count(issue.line?.shipQty ?? 0)}個は、${codes} の合計です。` +
+          "費用を按分するため、各商品のNEの1個あたりに、この行の品物を何個使用するかを入力してください（例：4個で1セットの場合は 4）。",
       };
     case "unit_mismatch":
       return {
-        title: "保存してある「何個で1セットか」で計算すると、届いた数と合いません",
+        title: "保存済みの個数で計算すると、入荷数と一致しません",
         body:
-          `${codes} の個数を確認してください。商品のセット内容が変わった、またはオーダー数の修正が必要な可能性があります。` +
-          "計算は続けていますが、金額の分け方がずれているかもしれません。",
+          `${codes} の個数を確認してください。セット内容の変更、またはオーダー数の修正が必要な可能性があります。` +
+          "計算は継続していますが、費用の按分に誤差が出ている可能性があります。",
       };
     case "unassigned_material":
       return {
-        title: "商品コードの書かれていない行があります",
+        title: "商品コードの記載がない行があります",
         body:
-          "この行は箱詰め備考に「●商品コード▲」がないので、費用をどの商品の原価に入れればいいか分かりません。" +
-          "ケース・袋・紙などの付属品なら、使う商品を選んでください。おまけ・サンプルなど商品と関係ないものは「原価に含めない」を選んでください。" +
-          "選んだ内容は注文番号ごとに保存され、同じ品物がまた来たときは自動で使われます。",
+          "箱詰め備考に「●商品コード▲」の記載がないため、この行の費用の割当先が決まっていません。" +
+          "ケース・袋・紙などの付属品の場合は、使用する商品を選択してください。おまけ・サンプル等、商品と関係のないものは「原価に含めない」を選択してください。" +
+          "設定は注文番号ごとに保存され、同じ品物が再度入荷した際に自動で適用されます。",
       };
     case "material_no_target":
       return {
-        title: "前に決めた付属品の行き先の商品が、この便にありません",
+        title: "付属品の割当先の商品が、この便に含まれていません",
         body:
-          `この行は前に「${codes} の付属品」と決めてありますが、今回の便にはその商品が入っていません。` +
-          "今回入れる商品を選び直すか、「原価に含めない」を選んでください。",
+          `この行は ${codes} の付属品として設定されていますが、今回の便には該当する商品が含まれていません。` +
+          "割当先を選択し直すか、「原価に含めない」を選択してください。",
       };
     case "material_mismatch":
       return {
-        title: "付属品の数が、商品の数と合いません",
+        title: "付属品の数量が、商品の数量と一致しません",
         body:
-          "付属品の数と、選んだ商品が使う数が一致しません。費用を分ける比率としては使えるので計算は続けています。" +
-          "1個に使う数が違っていれば直してください。",
+          "付属品の入荷数と、選択した商品の使用数が一致しません。按分の比率としては使用できるため、計算は継続しています。" +
+          "1個あたりの使用数に誤りがあれば修正してください。",
       };
     case "deleted_line":
       return {
-        title: "削除した商品の分の費用が、どの原価にも入っていません",
-        body: `${codes} を商品一覧で削除したため、この行の費用はどの商品にも乗っていません。届いていない商品なら、このままで大丈夫です。`,
+        title: "削除した商品の費用が、原価に含まれていません",
+        body: `${codes} を商品一覧で削除したため、この行の費用はいずれの商品にも割り当てられていません。未入荷の商品であれば、このままで問題ありません。`,
       };
     case "no_cost_data":
       return {
-        title: "配送依頼書に金額がない商品があります",
-        body: `${codes} は手入力で追加したなどの理由で、配送依頼書に金額がありません。原価は計算できないので、NEの原価は今のまま変えません。`,
+        title: "配送依頼書に金額のない商品があります",
+        body: `${codes} は手入力で追加した商品などのため、配送依頼書に金額がありません。原価を計算できないため、NEの原価は更新しません。`,
       };
     case "intl_fallback":
       return {
-        title: "国際送料を箱ごとに分けられませんでした",
-        body: "配送依頼書に箱の重さか、どの箱に入っているかの情報が足りないため、この便の国際送料は商品代金の比率で分けています。",
+        title: "国際送料を箱ごとに按分できませんでした",
+        body: "配送依頼書に箱の請求重量、または商品の梱包箱の情報が不足しているため、この便の国際送料は商品代金の比率で按分しています。",
       };
     case "quantity_mismatch":
       return {
-        title: "梱包数とオーダー数が違う商品があります",
+        title: "梱包数とオーダー数が異なる商品があります",
         body:
-          "多くはセット品（例：8個で1セット）で、その場合はこのままで大丈夫です。" +
-          "「一部だけ届いた可能性」と出ている商品は、上の商品一覧でオーダー数を実際に届いた数に直してください。直さないと、1個の原価が安く計算されます。",
+          "セット品（例：8個で1セット）の場合は、修正の必要はありません。" +
+          "「分納の可能性あり」と表示されている商品は、商品一覧でオーダー数を実際の入荷数に修正してください。修正しない場合、1個あたりの原価が低く計算されます。",
       };
     default:
-      return { title: "配送依頼書の読み取りで気になる点があります", body: issue.message };
+      return { title: "配送依頼書の読み取りに関する注意事項", body: issue.message };
   }
 }
 
@@ -447,9 +446,9 @@ function MismatchList({ items }: { items: NonNullable<CostIssue["items"]> }) {
           <em>
             {item.partial
               ? item.packingQuantities.length === 1
-                ? `一部だけ届いた可能性 → オーダー数を届いた数に（梱包数どおりなら ${count(item.packingQuantities[0])}）`
-                : "一部だけ届いた可能性 → オーダー数を届いた数に直す"
-              : "全部届いている → セット品ならこのままでOK"}
+                ? `分納の可能性あり：オーダー数を入荷数に修正（梱包数どおりなら ${count(item.packingQuantities[0])}）`
+                : "分納の可能性あり：オーダー数を入荷数に修正"
+              : "全数入荷済み：セット品であれば修正不要"}
           </em>
         </li>
       ))}
@@ -483,7 +482,7 @@ function UnitRuleEditor({
 
   async function save() {
     if (!allFilled) {
-      setMessage("すべての商品に1以上の数を入れてください。");
+      setMessage("すべての商品に1以上の数値を入力してください。");
       return;
     }
     setSaving(true);
@@ -503,17 +502,17 @@ function UnitRuleEditor({
         {codes.map((code, i) => (
           <label key={code} className="cost-unit-row">
             <strong>{code}</strong>
-            <span>は、NEの1個に</span>
+            <span>：NEの1個あたり</span>
             <input
               inputMode="decimal"
               value={values[code] ?? ""}
               placeholder="例 4"
               onChange={(event) => setValues((current) => ({ ...current, [code]: event.target.value }))}
             />
-            <span>個使う</span>
+            <span>個</span>
             {codeUnits[code] !== undefined && (
               <small>
-                × 今回{count(codeUnits[code])}個 ＝ {parsed[i] > 0 ? count(codeUnits[code] * parsed[i]) : "?"}個
+                × 入荷 {count(codeUnits[code])} ＝ {parsed[i] > 0 ? count(codeUnits[code] * parsed[i]) : "?"}個
               </small>
             )}
           </label>
@@ -523,14 +522,14 @@ function UnitRuleEditor({
         <p className={`cost-unit-check ${allFilled ? (matches ? "is-ok" : "is-ng") : ""}`}>
           {allFilled
             ? matches
-              ? `合計 ${count(total)}個 ＝ この行で届いた ${count(shipQty)}個 と一致しています`
-              : `合計 ${count(total)}個 ／ この行で届いたのは ${count(shipQty)}個（合っていません。数を見直してください）`
-            : `この行で届いたのは ${count(shipQty)}個 です。入れた数の合計がこれと一致すれば正解です`}
+              ? `合計 ${count(total)}個：この行の入荷数 ${count(shipQty)}個と一致しています`
+              : `合計 ${count(total)}個：この行の入荷数 ${count(shipQty)}個と一致しません。入力値を確認してください`
+            : `この行の入荷数は ${count(shipQty)}個です。合計がこの数と一致するように入力してください`}
         </p>
       )}
       <div className="cost-editor-fields">
         <button type="button" onClick={save} disabled={saving}>
-          {saving ? "保存中…" : "この数で保存（次回から自動）"}
+          {saving ? "保存中…" : "保存（次回以降も適用）"}
         </button>
       </div>
       {message && <small className="cost-editor-error">{message}</small>}
@@ -584,7 +583,7 @@ function MaterialRuleEditor({
           .map((code) => ({ productCode: code, qtyPerUnit: Number(state[code].qty) }))
           .filter((a) => a.qtyPerUnit > 0);
     if (!ignore && allocations.length === 0) {
-      setMessage("この行の品物を使う商品を1つ以上選んでください。");
+      setMessage("割当先の商品を1つ以上選択してください。");
       return;
     }
     setSaving(true);
@@ -608,8 +607,8 @@ function MaterialRuleEditor({
         }
       />
       <span>{code}</span>
-      {suggested.includes(code) && <em>備考に書いてある</em>}
-      <small>NEの1個に</small>
+      {suggested.includes(code) && <em>備考に記載あり</em>}
+      <small>NEの1個あたり</small>
       <input
         className="cost-material-qty"
         inputMode="decimal"
@@ -619,33 +618,33 @@ function MaterialRuleEditor({
           setState((current) => ({ ...current, [code]: { ...(current[code] ?? { checked: true }), qty: event.target.value } }))
         }
       />
-      <small>個使う</small>
+      <small>個</small>
     </label>
   );
 
   return (
     <div className="cost-editor">
-      <span className="cost-editor-label">この行の品物を使う商品</span>
+      <span className="cost-editor-label">割当先の商品</span>
       {primary.length > 0 ? (
         <div className="cost-material-options">{primary.map(renderCode)}</div>
       ) : (
-        <p className="cost-muted">候補が見つかりませんでした。下の「ほかの商品から選ぶ」から選んでください。</p>
+        <p className="cost-muted">候補がありません。「ほかの商品から選択」から選択してください。</p>
       )}
       {others.length > 0 && (
         <details className="cost-material-more">
-          <summary>ほかの商品から選ぶ（この便の{others.length}件）</summary>
+          <summary>ほかの商品から選択（この便の{others.length}件）</summary>
           <div className="cost-material-options">{others.map(renderCode)}</div>
         </details>
       )}
       <div className="cost-editor-fields">
         <button type="button" onClick={() => save(false)} disabled={saving}>
-          {saving ? "保存中…" : "選んだ商品の原価に入れる"}
+          {saving ? "保存中…" : "選択した商品に割り当てる"}
         </button>
         <button type="button" className="cost-secondary" onClick={() => save(true)} disabled={saving}>
-          原価に含めない（おまけ・サンプルなど）
+          原価に含めない（おまけ・サンプル等）
         </button>
       </div>
-      <small className="cost-muted">注文番号 {line.orderNo}・商品番号 {line.itemNo} の答えとして保存します。</small>
+      <small className="cost-muted">注文番号 {line.orderNo}・商品番号 {line.itemNo} の設定として保存します。</small>
       {message && <small className="cost-editor-error">{message}</small>}
     </div>
   );
