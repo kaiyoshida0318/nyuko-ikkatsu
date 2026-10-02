@@ -93,6 +93,17 @@ export type CostIssue = {
   /** 共有資材の割当先候補（同じ便で入庫するコード） */
   candidateCodes?: string[];
   amountJpy?: number;
+  /** 1行に複数コードがある行：コード → この便の入庫数 */
+  codeUnits?: Record<string, number>;
+  /** 梱包数とオーダー数が違う商品の一覧 */
+  items?: Array<{
+    productCode: string;
+    key: string;
+    packingQuantities: number[];
+    /** 購入数より出荷数が少ない行がある（分納の可能性が高い） */
+    partial: boolean;
+    shipmentIds: string[];
+  }>;
 };
 
 export type CodeCost = {

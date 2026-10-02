@@ -26,6 +26,8 @@ export type CostingExtractedRow = {
   productCodeLc: string;
   receivedQuantity: number;
   quantityMismatch: boolean;
+  key?: string;
+  packingQuantities?: number[];
 };
 
 export function materialRuleKey(orderNo: string, itemNo: string): string {
@@ -171,9 +173,11 @@ export function computeCosts(
 
   // 1. 同じ行(rowId)が複数便にまたがる場合の入庫数の按分用：便ごとの出荷数
   const piecesByRow = new Map<string, Map<string, number>>();
+  const partialRowIds = new Set<string>();
   for (const source of orderedSources) {
     for (const line of source.lines) {
       if (line.shipQty <= 0) continue;
+      if (line.tokens.length === 1 && line.shipQty < line.purchaseQty) partialRowIds.add(line.tokens[0].rowId);
       for (const token of line.tokens) {
         const byShipment = piecesByRow.get(token.rowId) ?? new Map<string, number>();
         byShipment.set(source.shipmentId, (byShipment.get(source.shipmentId) ?? 0) + line.shipQty);
@@ -344,7 +348,7 @@ export function computeCosts(
         targets.forEach((t, i) => {
           const acc = accFor(t.codeLc);
           addScaled(acc.total, cost, weights[i] / weightTotal);
-          acc.messages.add("共有資材を含む");
+          acc.messages.add("付属品の費用を含む");
         });
         allocatedJpy += lineTotal;
         if (Math.round(weightTotal) !== Math.round(line.shipQty)) {
@@ -404,14 +408,15 @@ export function computeCosts(
           level: "error",
           kind: "missing_unit_rule",
           shipmentId: source.shipmentId,
-          message: `行${line.lineNo}は複数の商品コードをまとめた行です。${missingNames.join(", ")} の入数（1単位あたりの個数）を登録してください。未登録の間は入庫数の比率で仮に分けています。`,
+          message: `行${line.lineNo}（出荷数${line.shipQty}）に ${liveCodes.map((code) => unitsByCode.get(code)!.productCode).join("・")} がまとまっています。${missingNames.join("・")} がNEの1個に何個入っているかを入れると、金額を正しく分けられます。`,
           productCodes: liveCodes.map((code) => unitsByCode.get(code)!.productCode),
           line,
+          codeUnits: Object.fromEntries(liveCodes.map((code) => [unitsByCode.get(code)!.productCode, unitsByCode.get(code)!.units])),
         });
         for (const code of liveCodes) {
           const acc = accFor(code);
           acc.hasError = true;
-          acc.messages.add("入数未登録のため仮計算");
+          acc.messages.add("個数の入力待ち（仮の金額）");
         }
       } else {
         weights = liveCodes.map((code) => unitsByCode.get(code)!.units * rules.unitRules[code]);
@@ -426,8 +431,12 @@ export function computeCosts(
               .join(" + ")} = ${pieces}）が出荷数${line.shipQty}と一致しません。入庫数か入数を確認してください。`,
             productCodes: liveCodes.map((code) => unitsByCode.get(code)!.productCode),
             line,
+            codeUnits: Object.fromEntries(liveCodes.map((code) => [unitsByCode.get(code)!.productCode, unitsByCode.get(code)!.units])),
           });
-          for (const code of liveCodes) accFor(code).hasWarning = true;
+          for (const code of liveCodes) {
+            accFor(code).hasWarning = true;
+            accFor(code).messages.add("登録した入り数だと個数が合わない");
+          }
         }
       }
       const weightTotal = weights.reduce((a, b) => a + b, 0);
@@ -442,7 +451,7 @@ export function computeCosts(
       for (const acc of codeMap.values()) {
         if (acc.shipmentId !== source.shipmentId) continue;
         acc.hasError = true;
-        acc.messages.add("この便に割当先未設定の費用あり");
+        acc.messages.add("この便に行き先が決まっていない費用があるため保留");
       }
     }
 
@@ -464,16 +473,38 @@ export function computeCosts(
     });
   }
 
-  // 梱包数と入庫数が違う行（分納の可能性）
+  // 梱包数とオーダー数が違う商品（セット品なら問題なし。分納なら届いた数に直す）
+  const mismatchItems: NonNullable<CostIssue["items"]> = [];
   for (const row of extractedRows) {
-    if (row.quantityMismatch && costedRowIds.has(row.rowId)) {
-      for (const acc of codeMap.values()) {
-        if (acc.productCodeLc === row.productCodeLc) {
-          acc.hasWarning = true;
-          acc.messages.add("梱包数と入庫数が不一致（分納なら入庫数を修正）");
-        }
+    if (!row.quantityMismatch || !costedRowIds.has(row.rowId)) continue;
+    const partial = partialRowIds.has(row.rowId);
+    const shipmentIds: string[] = [];
+    for (const acc of codeMap.values()) {
+      if (acc.productCodeLc !== row.productCodeLc) continue;
+      shipmentIds.push(acc.shipmentId);
+      if (partial) {
+        acc.hasWarning = true;
+        acc.messages.add("一部だけ届いた可能性（届いた数に直すと正しい原価）");
       }
     }
+    mismatchItems.push({
+      productCode: row.productCode,
+      key: row.key ?? "",
+      packingQuantities: row.packingQuantities ?? [],
+      partial,
+      shipmentIds: [...new Set(shipmentIds)],
+    });
+  }
+  if (mismatchItems.length > 0) {
+    mismatchItems.sort((a, b) => Number(b.partial) - Number(a.partial) || a.productCode.localeCompare(b.productCode));
+    issues.push({
+      level: "warning",
+      kind: "quantity_mismatch",
+      shipmentId: "",
+      message: `梱包数とオーダー数が違う商品が${mismatchItems.length}件あります。`,
+      productCodes: mismatchItems.map((item) => item.productCode),
+      items: mismatchItems,
+    });
   }
 
   // 原価データのないコード（手入力行など）

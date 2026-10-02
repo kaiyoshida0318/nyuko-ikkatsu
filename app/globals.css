@@ -4653,3 +4653,198 @@ html[data-theme="dark"] .cost-table td:nth-child(2) {
 .not-arrived-card li small {
   color: var(--muted);
 }
+
+/* 原価計算パネル：初めての人向けの説明 */
+.cost-summary {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.cost-summary strong {
+  font-size: 15px;
+}
+
+.cost-summary span {
+  color: var(--muted);
+}
+
+.cost-summary--error {
+  background: var(--danger-soft);
+}
+
+.cost-summary--error strong {
+  color: var(--danger);
+}
+
+.cost-summary--warning {
+  background: var(--warn-soft);
+}
+
+.cost-summary--ok {
+  background: var(--good-soft);
+}
+
+.cost-summary--ok strong {
+  color: var(--good);
+}
+
+.cost-howto {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.cost-howto summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.cost-howto p,
+.cost-howto ul {
+  margin: 8px 0 0;
+  line-height: 1.7;
+}
+
+.cost-howto ul {
+  padding-left: 20px;
+}
+
+.cost-issue-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cost-issue-top small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cost-issue-card h4 {
+  margin: 8px 0 4px;
+  font-size: 15px;
+}
+
+.cost-issue-card .cost-issue-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.cost-line-facts {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.cost-line-facts div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.cost-line-facts dt {
+  color: var(--muted);
+}
+
+.cost-line-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cost-line-note {
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.cost-mismatch-list {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.cost-mismatch-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.cost-mismatch-list li span {
+  color: var(--muted);
+}
+
+.cost-mismatch-list li em {
+  margin-left: auto;
+  font-style: normal;
+  color: var(--muted);
+}
+
+.cost-mismatch-list li.is-partial {
+  border-color: var(--warn);
+}
+
+.cost-mismatch-list li.is-partial em {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.cost-unit-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.cost-unit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.cost-unit-row input {
+  width: 80px;
+}
+
+.cost-unit-row small {
+  color: var(--muted);
+}
+
+.cost-unit-check {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cost-unit-check.is-ok {
+  color: var(--good);
+  font-weight: 700;
+}
+
+.cost-unit-check.is-ng {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.cost-material-option small {
+  white-space: nowrap;
+}
