@@ -36,6 +36,11 @@ import {
 import { runNyukoProcess, runNyukoProcessFromRows } from "@/lib/process";
 import { updateProductHubOrders } from "@/lib/productHub";
 import {
+  clearWorkStateRaw,
+  loadWorkStateRaw,
+  saveWorkStateRaw,
+} from "@/lib/workStateStore";
+import {
   embeddedSupabaseAnonKey,
   embeddedSupabaseUrl,
   getSupabaseConfigError,
@@ -188,11 +193,11 @@ function normalizePreviewTab(tab: unknown): PreviewTab {
   return "extracted";
 }
 
-function readSavedWorkState(): SavedWorkState | null {
+async function readSavedWorkState(): Promise<SavedWorkState | null> {
   if (typeof window === "undefined") return null;
 
   try {
-    const raw = window.localStorage.getItem(WORK_STATE_STORAGE_KEY);
+    const raw = await loadWorkStateRaw(WORK_STATE_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<SavedWorkState>;
     if (parsed.version !== 1 || !parsed.result) return null;
@@ -227,22 +232,25 @@ function readSavedWorkState(): SavedWorkState | null {
   }
 }
 
-function saveWorkState(state: SavedWorkState): boolean {
+async function saveWorkState(state: SavedWorkState): Promise<boolean> {
   if (typeof window === "undefined") return false;
 
+  let raw: string;
   try {
-    window.localStorage.setItem(WORK_STATE_STORAGE_KEY, JSON.stringify(state));
-    return true;
+    raw = JSON.stringify(state);
   } catch (err) {
-    console.warn("Saved work state save failed:", err);
+    console.warn("Saved work state serialize failed:", err);
     return false;
   }
+  return saveWorkStateRaw(WORK_STATE_STORAGE_KEY, raw);
 }
 
 function clearSavedWorkState() {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(WORK_STATE_STORAGE_KEY);
+  void clearWorkStateRaw(WORK_STATE_STORAGE_KEY);
 }
+
+const WORK_STATE_SAVE_FAILED_NOTICE =
+  "作業状態を保存できませんでした。処理結果およびNE・商品DBへの更新には影響ありませんが、ページを再読み込みした場合、現在の作業内容は復元されません。";
 
 function formatSavedAt(savedAt: string) {
   const date = new Date(savedAt);
@@ -1790,58 +1798,72 @@ export default function NyukoApp() {
       return;
     hasCheckedSavedWorkStateRef.current = true;
 
-    const savedState = readSavedWorkState();
-    if (!savedState) return;
+    void (async () => {
+      const savedState = await readSavedWorkState();
+      if (!savedState) return;
 
-    const shouldRestore = window.confirm(
-      `前回の作業途中データがあります。復元しますか？
+      const shouldRestore = window.confirm(
+        `前回の作業途中データがあります。復元しますか？
 保存日時: ${formatSavedAt(savedState.savedAt)}
 
 復元しない場合、前回の作業状態は破棄されます。`,
-    );
+      );
 
-    if (!shouldRestore) {
-      clearSavedWorkState();
-      return;
-    }
+      if (!shouldRestore) {
+        clearSavedWorkState();
+        return;
+      }
 
-    setResult(savedState.result);
-    setManualRows(savedState.manualRows);
-    setCorrections(savedState.corrections);
-    setActiveTab(savedState.activeTab);
-    setReflectStatus(savedState.reflectStatus);
-    setReflectError(savedState.reflectError);
-    setNeReauthUrl(savedState.neReauthUrl);
-    setCostRegistration(savedState.costRegistration ?? null);
-    setCostOnlyMode(savedState.costOnlyMode ?? false);
-    setError(null);
-    setWorkStateNotice(
-      "前回の作業状態を復元しました。必要ならこのまま更新・出力を続行できます。",
-    );
+      setResult(savedState.result);
+      setManualRows(savedState.manualRows);
+      setCorrections(savedState.corrections);
+      setActiveTab(savedState.activeTab);
+      setReflectStatus(savedState.reflectStatus);
+      setReflectError(savedState.reflectError);
+      setNeReauthUrl(savedState.neReauthUrl);
+      setCostRegistration(savedState.costRegistration ?? null);
+      setCostOnlyMode(savedState.costOnlyMode ?? false);
+      setError(null);
+      setWorkStateNotice(
+        "前回の作業状態を復元しました。必要ならこのまま更新・出力を続行できます。",
+      );
+    })();
   }, [authLoading, isLoggedIn]);
 
   useEffect(() => {
     if (!result) return;
 
-    const saved = saveWorkState({
-      version: 1,
-      savedAt: new Date().toISOString(),
-      result,
-      manualRows,
-      corrections,
-      activeTab,
-      reflectStatus,
-      reflectError,
-      neReauthUrl,
-      costRegistration,
-      costOnlyMode,
-    });
+    // 入力のたびに書き込まないよう、少し待ってから保存する
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void saveWorkState({
+        version: 1,
+        savedAt: new Date().toISOString(),
+        result,
+        manualRows,
+        corrections,
+        activeTab,
+        reflectStatus,
+        reflectError,
+        neReauthUrl,
+        costRegistration,
+        costOnlyMode,
+      }).then((saved) => {
+        if (cancelled) return;
+        if (!saved) {
+          setWorkStateNotice(WORK_STATE_SAVE_FAILED_NOTICE);
+        } else {
+          setWorkStateNotice((current) =>
+            current === WORK_STATE_SAVE_FAILED_NOTICE ? null : current,
+          );
+        }
+      });
+    }, 400);
 
-    if (!saved) {
-      setWorkStateNotice(
-        "作業状態の自動保存に失敗しました。データ量が大きい可能性があります。",
-      );
-    }
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [
     activeTab,
     corrections,
