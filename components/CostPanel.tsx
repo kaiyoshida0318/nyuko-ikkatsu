@@ -288,10 +288,10 @@ function RegistrationBox({ state, onRetry }: { state: CostRegistrationState; onR
           <span>
             登録 {state.result.registered_lots}件
             {consumed > 0 && ` / 古い便から消費 ${consumed.toLocaleString("ja-JP")}個`}
-            {opening > 0 && ` / 期首在庫を作成 ${opening}商品`}
+            {opening > 0 && ` / 導入前在庫を作成 ${opening}商品`}
             {adjusted > 0 && ` / 在庫増の調整 ${adjusted}商品`}
             {state.result.skipped_products > 0 && ` / 登録済みのためスキップ ${state.result.skipped_products}商品`}
-            {(state.result.revalued_opening_lots ?? 0) > 0 && ` / 期首在庫の原価を置き換え ${state.result.revalued_opening_lots}件`}
+            {(state.result.revalued_opening_lots ?? 0) > 0 && ` / 導入前在庫の原価を置き換え ${state.result.revalued_opening_lots}件`}
           </span>
         )}
         {state.skippedCodes.length > 0 && (

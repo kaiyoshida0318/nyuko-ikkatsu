@@ -45,7 +45,7 @@ create table if not exists public.cost_lots (
   created_at     timestamptz not null default now()
 );
 
--- 期首在庫を、最初に原価計算された便の原価で置き換えたときの便
+-- 導入前在庫を、最初に原価計算された便の原価で置き換えたときの便
 alter table public.cost_lots add column if not exists revalued_shipment_id text;
 
 create unique index if not exists cost_lots_shipment_uniq
@@ -124,10 +124,12 @@ grant usage, select on sequence public.cost_lots_id_seq, public.cost_stock_log_i
 
 -- ---------------------------------------------------------------------
 -- 1商品の在庫照合（先入先出）
---   NE在庫 < 便の残数合計 → 差分を古い便から消費（期首在庫がいちばん古い扱い）
+--   NE在庫 < 便の残数合計 → 差分を古い便から消費（導入前在庫がいちばん古い扱い）
 --   NE在庫 > 便の残数合計 → 通常：差分を「調整」として追加（最新の原価）
---                            過去の便の登録（p_backfill）：差分は便より前からあった在庫なので「期首在庫」として追加
---   便が1つもない → NE在庫を「期首」便として作成（NEの現在原価。最初の便の原価計算で置き換わる）
+--                            過去の便の登録（p_backfill）：差分は便より前からあった在庫なので「導入前在庫」として追加
+--   便が1つもない → NE在庫を「導入前在庫」として作成（NEの現在原価。最初の便の原価計算で置き換わる）
+--   導入前在庫（lot_type = 'opening'）の登録日は、どの便よりも前になるよう 2000-01-01 に固定する
+--   （在庫一覧で便より下に並び、「いちばん新しい在庫の原価」を探すときにも便が優先される）
 -- ---------------------------------------------------------------------
 drop function if exists public.cost__reconcile(text, integer, numeric, text, text);
 create or replace function public.cost__reconcile(
@@ -152,7 +154,7 @@ declare
   v_latest     numeric;
   r            record;
 begin
-  -- 同じ商品の照合が同時に走らないようにする（期首・調整の二重作成防止）
+  -- 同じ商品の照合が同時に走らないようにする（導入前在庫・調整の二重作成防止）
   perform pg_advisory_xact_lock(hashtext(lower(p_code)));
 
   select coalesce(sum(qty_remaining), 0), count(*)
@@ -171,10 +173,10 @@ begin
 
   if v_lot_count = 0 then
     if v_stock > 0 then
-      insert into public.cost_lots(product_code, lot_type, qty_in, qty_remaining, unit_cost, needs_review, note)
-      values (p_code, 'opening', v_stock, v_stock, p_cost_price,
+      insert into public.cost_lots(product_code, lot_type, received_at, qty_in, qty_remaining, unit_cost, needs_review, note)
+      values (p_code, 'opening', timestamptz '2000-01-01 00:00:00+09', v_stock, v_stock, p_cost_price,
               (p_cost_price is null or p_cost_price <= 0),
-              '期首在庫（NEの在庫数・原価から作成）');
+              '導入前在庫（NEの在庫数・原価から作成）');
       v_opening := v_stock;
     end if;
   elsif v_lots_qty > v_stock then
@@ -194,12 +196,10 @@ begin
     end loop;
   elsif v_lots_qty < v_stock and p_backfill then
     insert into public.cost_lots(product_code, lot_type, received_at, qty_in, qty_remaining, unit_cost, needs_review, note)
-    select p_code, 'opening',
-           least(now(), coalesce(min(received_at), now()) - interval '1 second'),
+    values (p_code, 'opening', timestamptz '2000-01-01 00:00:00+09',
            v_stock - v_lots_qty, v_stock - v_lots_qty, p_cost_price,
            (p_cost_price is null or p_cost_price <= 0),
-           '期首在庫（登録した過去の便より前からあった分）'
-      from public.cost_lots where lower(product_code) = lower(p_code);
+           '導入前在庫（登録した過去の便より前からあった分）');
     v_opening := v_stock - v_lots_qty;
   elsif v_lots_qty < v_stock then
     select unit_cost into v_latest
@@ -236,8 +236,8 @@ $$;
 --                 backfill：今のNE在庫（過去の便の分はすでに含まれている）
 -- }
 -- receipt ：照合 → 便を追加（登録日は今）
--- backfill：便を追加（登録日は配送依頼書の日付）→ 照合（足りない分は期首在庫としていちばん古い位置へ）
--- どちらも最後に、まだ置き換えていない期首在庫の原価を、今回登録したいちばん古い便の原価で置き換える。
+-- backfill：便を追加（登録日は配送依頼書の日付）→ 照合（足りない分は導入前在庫としていちばん古い位置へ）
+-- どちらも最後に、まだ置き換えていない導入前在庫の原価を、今回登録したいちばん古い便の原価で置き換える。
 -- 同じ便・同じ商品がすでに登録済みならスキップ（再実行しても二重登録しない）
 -- ---------------------------------------------------------------------
 drop function if exists public.cost_register_receipt(jsonb);
@@ -356,7 +356,7 @@ begin
            shipment_id = coalesce(shipment_id, (select min(shipment_id) from public.cost_lots where id = any(v_ids)))
      where id = (select max(id) from public.cost_stock_log where lower(product_code) = lower(v_code));
 
-    -- 期首在庫の原価を、今回登録したいちばん古い便（要確認でないもの）の原価で置き換える（1回だけ）
+    -- 導入前在庫の原価を、今回登録したいちばん古い便（要確認でないもの）の原価で置き換える（1回だけ）
     select * into v_first
       from public.cost_lots
      where id = any(v_ids) and not needs_review and unit_cost is not null
@@ -372,7 +372,7 @@ begin
              unit_other = v_first.unit_other,
              needs_review = false,
              revalued_shipment_id = v_first.shipment_id,
-             note = '期首在庫（原価は ' || v_first.shipment_id || ' の便から）'
+             note = '導入前在庫（原価は ' || v_first.shipment_id || ' の便から）'
        where lower(product_code) = lower(v_code)
          and lot_type = 'opening'
          and revalued_shipment_id is null;
