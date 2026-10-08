@@ -45,7 +45,7 @@ create table if not exists public.cost_lots (
   created_at     timestamptz not null default now()
 );
 
--- 導入前在庫を、最初に原価計算された便の原価で置き換えたときの便
+-- 旧原価在庫を、最初に原価計算された便の原価で置き換えたときの便
 alter table public.cost_lots add column if not exists revalued_shipment_id text;
 
 create unique index if not exists cost_lots_shipment_uniq
@@ -94,6 +94,13 @@ create table if not exists public.cost_stock_log (
 create index if not exists cost_stock_log_code_idx
   on public.cost_stock_log (lower(product_code), logged_at desc);
 
+-- 出入りの金額（在庫金額計算くんの「在庫推移(表)」の入庫・出荷に使う）。この列を足す前の記録は空
+alter table public.cost_stock_log
+  add column if not exists added_value    numeric,   -- 入庫一括で登録した分の金額（数量 × 便の原価）
+  add column if not exists adjusted_value numeric,   -- 在庫増の調整の金額
+  add column if not exists opening_value  numeric,   -- 旧原価在庫の登録の金額
+  add column if not exists consumed_value numeric;   -- 古い便から差し引いた分の金額（先入先出の出荷原価）
+
 -- ---------------------------------------------------------------------
 -- RLS：ログイン済みユーザー（入庫一括と同じSupabase Auth）のみ
 -- ---------------------------------------------------------------------
@@ -124,11 +131,11 @@ grant usage, select on sequence public.cost_lots_id_seq, public.cost_stock_log_i
 
 -- ---------------------------------------------------------------------
 -- 1商品の在庫照合（先入先出）
---   NE在庫 < 便の残数合計 → 差分を古い便から消費（導入前在庫がいちばん古い扱い）
+--   NE在庫 < 便の残数合計 → 差分を古い便から消費（旧原価在庫がいちばん古い扱い）
 --   NE在庫 > 便の残数合計 → 通常：差分を「調整」として追加（最新の原価）
---                            過去の便の登録（p_backfill）：差分は便より前からあった在庫なので「導入前在庫」として追加
---   便が1つもない → NE在庫を「導入前在庫」として作成（NEの現在原価。最初の便の原価計算で置き換わる）
---   導入前在庫（lot_type = 'opening'）の登録日は、どの便よりも前になるよう 2000-01-01 に固定する
+--                            過去の便の登録（p_backfill）：差分は便より前からあった在庫なので「旧原価在庫」として追加
+--   便が1つもない → NE在庫を「旧原価在庫」として作成（NEの現在原価。最初の便の原価計算で置き換わる）
+--   旧原価在庫（lot_type = 'opening'）の登録日は、どの便よりも前になるよう 2000-01-01 に固定する
 --   （在庫一覧で便より下に並び、「いちばん新しい在庫の原価」を探すときにも便が優先される）
 -- ---------------------------------------------------------------------
 drop function if exists public.cost__reconcile(text, integer, numeric, text, text);
@@ -151,10 +158,13 @@ declare
   v_consumed   integer := 0;
   v_adjusted   integer := 0;
   v_opening    integer := 0;
+  v_consumed_value numeric := 0;
+  v_adjusted_value numeric := 0;
+  v_opening_value  numeric := 0;
   v_latest     numeric;
   r            record;
 begin
-  -- 同じ商品の照合が同時に走らないようにする（導入前在庫・調整の二重作成防止）
+  -- 同じ商品の照合が同時に走らないようにする（旧原価在庫・調整の二重作成防止）
   perform pg_advisory_xact_lock(hashtext(lower(p_code)));
 
   select coalesce(sum(qty_remaining), 0), count(*)
@@ -176,13 +186,14 @@ begin
       insert into public.cost_lots(product_code, lot_type, received_at, qty_in, qty_remaining, unit_cost, needs_review, note)
       values (p_code, 'opening', timestamptz '2000-01-01 00:00:00+09', v_stock, v_stock, p_cost_price,
               (p_cost_price is null or p_cost_price <= 0),
-              '導入前在庫（NEの在庫数・原価から作成）');
+              '旧原価在庫（NEの在庫数・原価から作成）');
       v_opening := v_stock;
+      v_opening_value := v_stock * coalesce(p_cost_price, 0);
     end if;
   elsif v_lots_qty > v_stock then
     v_diff := v_lots_qty - v_stock;
     for r in
-      select id, qty_remaining
+      select id, qty_remaining, unit_cost
         from public.cost_lots
        where lower(product_code) = lower(p_code) and qty_remaining > 0
        order by (lot_type <> 'opening'), received_at, id
@@ -193,14 +204,16 @@ begin
       update public.cost_lots set qty_remaining = qty_remaining - v_take where id = r.id;
       v_diff := v_diff - v_take;
       v_consumed := v_consumed + v_take;
+      v_consumed_value := v_consumed_value + v_take * coalesce(r.unit_cost, 0);
     end loop;
   elsif v_lots_qty < v_stock and p_backfill then
     insert into public.cost_lots(product_code, lot_type, received_at, qty_in, qty_remaining, unit_cost, needs_review, note)
     values (p_code, 'opening', timestamptz '2000-01-01 00:00:00+09',
            v_stock - v_lots_qty, v_stock - v_lots_qty, p_cost_price,
            (p_cost_price is null or p_cost_price <= 0),
-           '導入前在庫（登録した過去の便より前からあった分）');
+           '旧原価在庫（登録した過去の便より前からあった分）');
     v_opening := v_stock - v_lots_qty;
+    v_opening_value := (v_stock - v_lots_qty) * coalesce(p_cost_price, 0);
   elsif v_lots_qty < v_stock then
     select unit_cost into v_latest
       from public.cost_lots
@@ -212,10 +225,13 @@ begin
             coalesce(v_latest, p_cost_price), (coalesce(v_latest, p_cost_price) is null),
             'NE在庫が便の残数より多い分（返品・棚卸増など）');
     v_adjusted := v_stock - v_lots_qty;
+    v_adjusted_value := (v_stock - v_lots_qty) * coalesce(v_latest, p_cost_price, 0);
   end if;
 
-  insert into public.cost_stock_log(product_code, event, shipment_id, ne_stock, lots_qty_before, consumed, adjusted, opening)
-  values (p_code, p_event, p_shipment_id, v_stock, v_lots_qty, v_consumed, v_adjusted, v_opening);
+  insert into public.cost_stock_log(product_code, event, shipment_id, ne_stock, lots_qty_before, consumed, adjusted, opening,
+                                    consumed_value, adjusted_value, opening_value)
+  values (p_code, p_event, p_shipment_id, v_stock, v_lots_qty, v_consumed, v_adjusted, v_opening,
+          v_consumed_value, v_adjusted_value, v_opening_value);
 
   return jsonb_build_object(
     'product_code', p_code, 'ne_stock', v_stock, 'lots_qty_before', v_lots_qty,
@@ -236,8 +252,8 @@ $$;
 --                 backfill：今のNE在庫（過去の便の分はすでに含まれている）
 -- }
 -- receipt ：照合 → 便を追加（登録日は今）
--- backfill：便を追加（登録日は配送依頼書の日付）→ 照合（足りない分は導入前在庫としていちばん古い位置へ）
--- どちらも最後に、まだ置き換えていない導入前在庫の原価を、今回登録したいちばん古い便の原価で置き換える。
+-- backfill：便を追加（登録日は配送依頼書の日付）→ 照合（足りない分は旧原価在庫としていちばん古い位置へ）
+-- どちらも最後に、まだ置き換えていない旧原価在庫の原価を、今回登録したいちばん古い便の原価で置き換える。
 -- 同じ便・同じ商品がすでに登録済みならスキップ（再実行しても二重登録しない）
 -- ---------------------------------------------------------------------
 drop function if exists public.cost_register_receipt(jsonb);
@@ -353,10 +369,12 @@ begin
     -- 照合ログに追加数と便を記録
     update public.cost_stock_log
        set added = added + coalesce((select sum(qty_in) from public.cost_lots where id = any(v_ids)), 0),
+           added_value = coalesce(added_value, 0)
+                         + coalesce((select sum(qty_in * coalesce(unit_cost, 0)) from public.cost_lots where id = any(v_ids)), 0),
            shipment_id = coalesce(shipment_id, (select min(shipment_id) from public.cost_lots where id = any(v_ids)))
      where id = (select max(id) from public.cost_stock_log where lower(product_code) = lower(v_code));
 
-    -- 導入前在庫の原価を、今回登録したいちばん古い便（要確認でないもの）の原価で置き換える（1回だけ）
+    -- 旧原価在庫の原価を、今回登録したいちばん古い便（要確認でないもの）の原価で置き換える（1回だけ）
     select * into v_first
       from public.cost_lots
      where id = any(v_ids) and not needs_review and unit_cost is not null
@@ -372,7 +390,7 @@ begin
              unit_other = v_first.unit_other,
              needs_review = false,
              revalued_shipment_id = v_first.shipment_id,
-             note = '導入前在庫（原価は ' || v_first.shipment_id || ' の便から）'
+             note = '旧原価在庫（原価は ' || v_first.shipment_id || ' の便から）'
        where lower(product_code) = lower(v_code)
          and lot_type = 'opening'
          and revalued_shipment_id is null;
