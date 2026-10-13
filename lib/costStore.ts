@@ -4,6 +4,7 @@ import type {
   CostRules,
   MaterialRule,
   NeStockBefore,
+  OrderLineRecord,
 } from "./costTypes";
 import { supabase } from "./supabaseClient";
 
@@ -55,6 +56,53 @@ export async function fetchCostRules(): Promise<CostRules> {
     rules.materialRules[materialRuleKey(rule.orderNo, rule.itemNo)] = rule;
   }
   return rules;
+}
+
+/**
+ * 発注記録（商品DBの rakumart_order_records）を、配送依頼書に出てくる注文番号の分だけ読む。
+ * 戻り値のキーは materialRuleKey(注文番号, 商品番号) → 商品コード小文字。
+ * テーブルがまだない環境（商品DBのSQL v4 未実行）では空を返し、従来どおりの計算になる。
+ */
+export async function fetchOrderLineRecords(
+  orderNos: string[],
+): Promise<{ records: NonNullable<CostRules["lineRecords"]>; count: number; missingTable: boolean }> {
+  const records: NonNullable<CostRules["lineRecords"]> = {};
+  const unique = [...new Set(orderNos.map((no) => no.trim()).filter(Boolean))];
+  if (unique.length === 0) return { records, count: 0, missingTable: false };
+  const client = requireClient();
+  let count = 0;
+  const PAGE = 1000; // Supabase の1回の上限
+  for (let i = 0; i < unique.length; i += 20) {
+    const batch = unique.slice(i, i + 20);
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await client
+        .from("rakumart_order_records")
+        .select("rakumart_order_no,line_no,product_code,role,quantity_multiplier,status")
+        .in("rakumart_order_no", batch)
+        .neq("status", "cancelled")
+        .order("rakumart_order_no")
+        .order("line_no")
+        .order("product_code")
+        .range(from, from + PAGE - 1);
+      if (error) {
+        const missing =
+          error.code === "42P01" || error.code === "PGRST205" || /does not exist|Could not find/i.test(error.message ?? "");
+        if (missing) return { records: {}, count: 0, missingTable: true };
+        throw new Error(describe(error));
+      }
+      for (const row of data ?? []) {
+        const multiplier = Number(row.quantity_multiplier);
+        const code = String(row.product_code ?? "").trim().toLowerCase();
+        if (!code || !(multiplier > 0)) continue;
+        const key = materialRuleKey(String(row.rakumart_order_no), String(row.line_no));
+        const record: OrderLineRecord = { role: row.role === "accessory" ? "accessory" : "main", multiplier };
+        (records[key] ??= {})[code] = record;
+        count += 1;
+      }
+      if (!data || data.length < PAGE) break;
+    }
+  }
+  return { records, count, missingTable: false };
 }
 
 export async function saveUnitRule(productCode: string, piecesPerUnit: number): Promise<void> {

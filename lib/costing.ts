@@ -5,6 +5,7 @@ import type {
   CostLine,
   CostResult,
   CostRules,
+  CostToken,
   NeGenkaRow,
   ShipmentCostSource,
   ShipmentCostSummary,
@@ -150,6 +151,11 @@ export function computeLineCosts(source: ShipmentCostSource): {
   return { lineCosts, intlMethod: "value", chargeableKg };
 }
 
+/** 行に出てくる商品コードの種類数（同じコードの別オーダーは1つと数える） */
+function distinctCodeCount(line: CostLine): number {
+  return new Set(line.tokens.map((token) => token.productCodeLc)).size;
+}
+
 type CodeAccumulator = {
   shipmentId: string;
   sourceFile: string;
@@ -170,25 +176,53 @@ export function computeCosts(
   const issues: CostIssue[] = [];
   const rowById = new Map(extractedRows.map((row) => [row.rowId, row]));
   const orderedSources = [...sources].sort((a, b) => a.shipmentId.localeCompare(b.shipmentId));
+  const sourceById = new Map(orderedSources.map((source) => [source.shipmentId, source]));
 
-  // 1. 同じ行(rowId)が複数便にまたがる場合の入庫数の按分用：便ごとの出荷数
-  const piecesByRow = new Map<string, Map<string, number>>();
+  // 発注記録（商品DBの rakumart_order_records）。注文番号＋商品番号 → 商品コード → 記録
+  const recordFor = (line: CostLine, codeLc: string) =>
+    rules.lineRecords?.[materialRuleKey(line.orderNo, line.itemNo)]?.[codeLc];
+
+  // 本体の行かどうか。入庫数をどの便に数えるかは本体の行だけで決める。
+  //   発注記録があればその区分。なければ「複数の●▲がある行で、そのコードに単独の行が別にある」なら付属品とみなす
+  //   （爪切りのやすり・ケースの行。セット品のように全行が単独の●▲なら、従来どおり全行で数える）
+  const soloCodes = new Set<string>();
+  for (const source of orderedSources) {
+    for (const line of source.lines) {
+      if (line.shipQty > 0 && distinctCodeCount(line) === 1) soloCodes.add(line.tokens[0].productCodeLc);
+    }
+  }
+  const isMainLine = (line: CostLine, token: CostToken) => {
+    const record = recordFor(line, token.productCodeLc);
+    if (record) return record.role === "main";
+    return !(distinctCodeCount(line) > 1 && soloCodes.has(token.productCodeLc));
+  };
+
+  // 1. 同じ行(rowId)が複数便にまたがる場合の入庫数の按分用：便ごとの出荷数（本体の行だけ）
+  const mainPiecesByRow = new Map<string, Map<string, number>>();
+  const anyPiecesByRow = new Map<string, Map<string, number>>();
   const partialRowIds = new Set<string>();
+  const addPieces = (target: Map<string, Map<string, number>>, rowId: string, shipmentId: string, qty: number) => {
+    const byShipment = target.get(rowId) ?? new Map<string, number>();
+    byShipment.set(shipmentId, (byShipment.get(shipmentId) ?? 0) + qty);
+    target.set(rowId, byShipment);
+  };
   for (const source of orderedSources) {
     for (const line of source.lines) {
       if (line.shipQty <= 0) continue;
-      if (line.tokens.length === 1 && line.shipQty < line.purchaseQty) partialRowIds.add(line.tokens[0].rowId);
       for (const token of line.tokens) {
-        const byShipment = piecesByRow.get(token.rowId) ?? new Map<string, number>();
-        byShipment.set(source.shipmentId, (byShipment.get(source.shipmentId) ?? 0) + line.shipQty);
-        piecesByRow.set(token.rowId, byShipment);
+        addPieces(anyPiecesByRow, token.rowId, source.shipmentId, line.shipQty);
+        if (!isMainLine(line, token)) continue;
+        addPieces(mainPiecesByRow, token.rowId, source.shipmentId, line.shipQty);
+        if (line.tokens.length === 1 && line.shipQty < line.purchaseQty) partialRowIds.add(token.rowId);
       }
     }
   }
   const unitsByRowShipment = new Map<string, number>();
-  for (const [rowId, byShipment] of piecesByRow) {
+  for (const [rowId, anyByShipment] of anyPiecesByRow) {
     const row = rowById.get(rowId);
     if (!row) continue;
+    // 本体の行がどの便にもない（付属品の行にしか出てこない）ときは、従来どおり全行で数える
+    const byShipment = mainPiecesByRow.get(rowId) ?? anyByShipment;
     const entries = [...byShipment.entries()];
     const totalPieces = entries.reduce((sum, [, pieces]) => sum + pieces, 0);
     // 最大剰余法で整数に配分（合計が入庫数と一致し、負にならない）
@@ -208,9 +242,58 @@ export function computeCosts(
     });
   }
 
+  // 便ごと・コードごとの入庫数（修正後のコード）
+  const unitsByShipment = new Map<string, Map<string, { productCode: string; units: number }>>();
+  const costedRowIds = new Set<string>();
+  for (const [key, units] of unitsByRowShipment) {
+    const [rowId, shipmentId] = key.split("@@");
+    const row = rowById.get(rowId);
+    if (!row) continue;
+    costedRowIds.add(rowId);
+    const byCode = unitsByShipment.get(shipmentId) ?? new Map<string, { productCode: string; units: number }>();
+    const current = byCode.get(row.productCodeLc) ?? { productCode: row.productCode, units: 0 };
+    current.units += units;
+    byCode.set(row.productCodeLc, current);
+    unitsByShipment.set(shipmentId, byCode);
+  }
+  const unitsAt = (shipmentId: string, codeLc: string) => unitsByShipment.get(shipmentId)?.get(codeLc)?.units ?? 0;
+  // 本体が別の便で入庫するコードの「本体の便」（入庫数がいちばん多い便、同数なら新しい便）
+  const homeShipment = (codeLc: string, except: string): string | null => {
+    let best: { shipmentId: string; units: number } | null = null;
+    for (const [shipmentId, byCode] of unitsByShipment) {
+      if (shipmentId === except) continue;
+      const units = byCode.get(codeLc)?.units ?? 0;
+      if (units <= 0) continue;
+      if (!best || units > best.units || (units === best.units && shipmentId > best.shipmentId)) {
+        best = { shipmentId, units };
+      }
+    }
+    return best?.shipmentId ?? null;
+  };
+
   const codeMap = new Map<string, CodeAccumulator>();
   const shipments: ShipmentCostSummary[] = [];
-  const costedRowIds = new Set<string>();
+
+  const accAt = (shipmentId: string, codeLc: string): CodeAccumulator => {
+    const key = `${shipmentId}@@${codeLc}`;
+    let acc = codeMap.get(key);
+    if (!acc) {
+      const info = unitsByShipment.get(shipmentId)?.get(codeLc);
+      acc = {
+        shipmentId,
+        sourceFile: sourceById.get(shipmentId)?.sourceFile ?? "",
+        productCode: info?.productCode ?? codeLc,
+        productCodeLc: codeLc,
+        units: info?.units ?? 0,
+        total: emptyBreakdown(),
+        messages: new Set(),
+        hasError: false,
+        hasWarning: false,
+      };
+      codeMap.set(key, acc);
+    }
+    return acc;
+  };
 
   for (const source of orderedSources) {
     const { lineCosts, intlMethod, chargeableKg } = computeLineCosts(source);
@@ -234,42 +317,8 @@ export function computeCosts(
     }
 
     // この便で入庫するコード（修正後のコード）と入庫数
-    const unitsByCode = new Map<string, { productCode: string; units: number }>();
-    for (const line of source.lines) {
-      if (line.shipQty <= 0) continue;
-      for (const token of line.tokens) {
-        const row = rowById.get(token.rowId);
-        if (!row) continue;
-        const key = `${token.rowId}@@${source.shipmentId}`;
-        if (!unitsByRowShipment.has(key)) continue;
-        const units = unitsByRowShipment.get(key)!;
-        unitsByRowShipment.delete(key); // 同じrowIdを複数行で数えない
-        costedRowIds.add(token.rowId);
-        const current = unitsByCode.get(row.productCodeLc) ?? { productCode: row.productCode, units: 0 };
-        current.units += units;
-        unitsByCode.set(row.productCodeLc, current);
-      }
-    }
-
-    const accFor = (codeLc: string): CodeAccumulator => {
-      const key = `${source.shipmentId}@@${codeLc}`;
-      let acc = codeMap.get(key);
-      if (!acc) {
-        acc = {
-          shipmentId: source.shipmentId,
-          sourceFile: source.sourceFile,
-          productCode: unitsByCode.get(codeLc)?.productCode ?? codeLc,
-          productCodeLc: codeLc,
-          units: unitsByCode.get(codeLc)?.units ?? 0,
-          total: emptyBreakdown(),
-          messages: new Set(),
-          hasError: false,
-          hasWarning: false,
-        };
-        codeMap.set(key, acc);
-      }
-      return acc;
-    };
+    const unitsByCode = unitsByShipment.get(source.shipmentId) ?? new Map<string, { productCode: string; units: number }>();
+    const accFor = (codeLc: string) => accAt(source.shipmentId, codeLc);
     for (const codeLc of unitsByCode.keys()) accFor(codeLc);
 
     let totalJpy = 0;
@@ -284,13 +333,62 @@ export function computeCosts(
       const lineTotal = breakdownTotal(cost);
       totalJpy += lineTotal;
 
-      const liveCodes = [
-        ...new Set(
-          line.tokens
-            .map((token) => rowById.get(token.rowId)?.productCodeLc)
-            .filter((code): code is string => Boolean(code) && (unitsByCode.get(code!)?.units ?? 0) > 0),
-        ),
-      ];
+      // この行の費用を付ける先。本体がこの便にないコードは、本体の便（読み込んだ別の便）へ付ける
+      type Target = { codeLc: string; shipmentId: string; units: number; multiplier?: number; carried: boolean };
+      const targets: Target[] = [];
+      const absent = new Map<string, string>(); // 本体未着の付属品分：コード小文字 → 表示名
+      for (const token of line.tokens) {
+        const row = rowById.get(token.rowId);
+        const codeLc = row?.productCodeLc ?? token.productCodeLc;
+        if (targets.some((t) => t.codeLc === codeLc)) continue;
+        const accessory = !isMainLine(line, token);
+        // 削除された行：本体の行なら従来どおり黙って外す。付属品の行なら「本体未着」として警告する
+        if (!row) {
+          if (accessory) absent.set(codeLc, token.productCode);
+          continue;
+        }
+        const multiplier = recordFor(line, token.productCodeLc)?.multiplier;
+        const here = unitsAt(source.shipmentId, codeLc);
+        if (here > 0) {
+          targets.push({ codeLc, shipmentId: source.shipmentId, units: here, multiplier, carried: false });
+          continue;
+        }
+        // この便に本体がないコード：付属品の行で、その行が入庫対象（入庫数1以上）のときだけ、
+        // 本体が届いた別の便へ費用を付ける
+        const home = accessory && row.receivedQuantity > 0 ? homeShipment(codeLc, source.shipmentId) : null;
+        if (home) {
+          targets.push({ codeLc, shipmentId: home, units: unitsAt(home, codeLc), multiplier, carried: true });
+        } else if (accessory) {
+          absent.set(codeLc, row.productCode);
+        }
+      }
+      for (const t of targets) absent.delete(t.codeLc);
+      const absentCodes = [...absent.values()];
+      const nameOf = (t: Target) => unitsByShipment.get(t.shipmentId)?.get(t.codeLc)?.productCode ?? t.codeLc;
+      const allocate = (t: Target, factor: number) => {
+        const acc = accAt(t.shipmentId, t.codeLc);
+        addScaled(acc.total, cost, factor);
+        if (t.carried) {
+          acc.hasWarning = true;
+          acc.messages.add(`別便（${source.shipmentId}）の付属品の費用を含む（この便が登録済みなら反映されません）`);
+        }
+      };
+      if (absentCodes.length > 0 && targets.length > 0) {
+        issues.push({
+          level: "warning",
+          kind: "absent_share",
+          shipmentId: source.shipmentId,
+          message: `行${line.lineNo}（出荷数${line.shipQty}）には ${absentCodes.join("・")} の分も含まれていますが、本体が読み込んだ便に届いていないため、${targets.map(nameOf).join("・")} の原価に含めています（${fmtYen(lineTotal)}）。`,
+          productCodes: [...absentCodes, ...targets.map(nameOf)],
+          line,
+          amountJpy: lineTotal,
+        });
+        for (const t of targets) {
+          const acc = accAt(t.shipmentId, t.codeLc);
+          acc.hasWarning = true;
+          acc.messages.add("本体未着の商品分の付属品費用を含む");
+        }
+      }
 
       // 商品コードなし → 共有資材ルール
       if (line.tokens.length === 0) {
@@ -321,13 +419,21 @@ export function computeCosts(
           });
           continue;
         }
-        const targets = rule.allocations
-          .map((alloc) => ({
-            codeLc: alloc.productCode.toLowerCase(),
-            qtyPerUnit: alloc.qtyPerUnit,
-          }))
-          .filter((t) => t.qtyPerUnit > 0 && (unitsByCode.get(t.codeLc)?.units ?? 0) > 0);
-        if (targets.length === 0) {
+        // 割当先の商品がこの便にないときは、本体が届いた別の便へ付ける
+        const ruleTargets = rule.allocations
+          .map((alloc) => {
+            const codeLc = alloc.productCode.toLowerCase();
+            const here = unitsAt(source.shipmentId, codeLc);
+            const shipmentId = here > 0 ? source.shipmentId : homeShipment(codeLc, source.shipmentId);
+            return {
+              codeLc,
+              qtyPerUnit: alloc.qtyPerUnit,
+              shipmentId,
+              units: shipmentId ? unitsAt(shipmentId, codeLc) : 0,
+            };
+          })
+          .filter((t) => t.qtyPerUnit > 0 && t.shipmentId && t.units > 0);
+        if (ruleTargets.length === 0) {
           unallocatedJpy += lineTotal;
           hasUnallocatedError = true;
           issues.push({
@@ -343,12 +449,16 @@ export function computeCosts(
           });
           continue;
         }
-        const weights = targets.map((t) => (unitsByCode.get(t.codeLc)?.units ?? 0) * t.qtyPerUnit);
+        const weights = ruleTargets.map((t) => t.units * t.qtyPerUnit);
         const weightTotal = weights.reduce((a, b) => a + b, 0);
-        targets.forEach((t, i) => {
-          const acc = accFor(t.codeLc);
+        ruleTargets.forEach((t, i) => {
+          const acc = accAt(t.shipmentId!, t.codeLc);
           addScaled(acc.total, cost, weights[i] / weightTotal);
           acc.messages.add("付属品の費用を含む");
+          if (t.shipmentId !== source.shipmentId) {
+            acc.hasWarning = true;
+            acc.messages.add(`別便（${source.shipmentId}）の付属品の費用を含む（この便が登録済みなら反映されません）`);
+          }
         });
         allocatedJpy += lineTotal;
         if (Math.round(weightTotal) !== Math.round(line.shipQty)) {
@@ -357,14 +467,14 @@ export function computeCosts(
             kind: "material_mismatch",
             shipmentId: source.shipmentId,
             message: `共有資材（注文${line.orderNo} / 商品番号${line.itemNo}）：出荷数${line.shipQty}に対し、割当計算上の使用数は${weightTotal}です。分配の比率だけに使うので計算は続けます。`,
-            productCodes: targets.map((t) => unitsByCode.get(t.codeLc)!.productCode),
+            productCodes: ruleTargets.map((t) => unitsByShipment.get(t.shipmentId!)?.get(t.codeLc)?.productCode ?? t.codeLc),
             line,
           });
         }
         continue;
       }
 
-      if (liveCodes.length === 0) {
+      if (targets.length === 0) {
         unallocatedJpy += lineTotal;
         issues.push({
           level: "warning",
@@ -378,70 +488,71 @@ export function computeCosts(
         continue;
       }
 
-      if (liveCodes.length === 1) {
-        addScaled(accFor(liveCodes[0]).total, cost, 1);
+      if (targets.length === 1) {
+        allocate(targets[0], 1);
         allocatedJpy += lineTotal;
         continue;
       }
 
-      // 1行に複数コード → 入数で按分
-      const missing = liveCodes.filter((code) => !(rules.unitRules[code] > 0));
+      // 1行に複数コード → 発注記録の倍率（あれば最優先）、なければ入数マスタで按分
       let weights: number[];
-      // 入数が未登録でも、未登録分を「1単位に1個」とみなすと出荷数とぴったり合うなら、それで分ける
-      // （例：ケース・やすりの行にS/L両方の●▲がある付属品の行。1セットに1個ずつ使う）
-      const assumedOne =
-        missing.length > 0 &&
-        Math.round(
-          liveCodes.reduce(
-            (sum, code) => sum + unitsByCode.get(code)!.units * (rules.unitRules[code] > 0 ? rules.unitRules[code] : 1),
-            0,
-          ),
-        ) === Math.round(line.shipQty);
-      if (assumedOne) {
-        weights = liveCodes.map(
-          (code) => unitsByCode.get(code)!.units * (rules.unitRules[code] > 0 ? rules.unitRules[code] : 1),
-        );
-      } else if (missing.length > 0) {
-        weights = liveCodes.map((code) => unitsByCode.get(code)!.units);
-        const missingNames = missing.map((code) => unitsByCode.get(code)!.productCode);
-        issues.push({
-          level: "error",
-          kind: "missing_unit_rule",
-          shipmentId: source.shipmentId,
-          message: `行${line.lineNo}（出荷数${line.shipQty}）に ${liveCodes.map((code) => unitsByCode.get(code)!.productCode).join("・")} がまとまっています。${missingNames.join("・")} がNEの1個に何個入っているかを入れると、金額を正しく分けられます。`,
-          productCodes: liveCodes.map((code) => unitsByCode.get(code)!.productCode),
-          line,
-          codeUnits: Object.fromEntries(liveCodes.map((code) => [unitsByCode.get(code)!.productCode, unitsByCode.get(code)!.units])),
-        });
-        for (const code of liveCodes) {
-          const acc = accFor(code);
-          acc.hasError = true;
-          acc.messages.add("個数未入力のため仮計算");
-        }
+      if (targets.every((t) => (t.multiplier ?? 0) > 0)) {
+        weights = targets.map((t) => t.units * t.multiplier!);
+        for (const t of targets) accAt(t.shipmentId, t.codeLc).messages.add("発注記録の倍率で按分");
       } else {
-        weights = liveCodes.map((code) => unitsByCode.get(code)!.units * rules.unitRules[code]);
-        const pieces = weights.reduce((a, b) => a + b, 0);
-        if (Math.round(pieces) !== Math.round(line.shipQty)) {
+        const unitRule = (t: Target) => (t.multiplier ?? 0) > 0 ? t.multiplier! : rules.unitRules[t.codeLc];
+        const missing = targets.filter((t) => !(unitRule(t) > 0));
+        // 入数が未登録でも、未登録分を「1単位に1個」とみなすと出荷数とぴったり合うなら、それで分ける
+        // （例：ケース・やすりの行にS/L両方の●▲がある付属品の行。1セットに1個ずつ使う）
+        const assumedOne =
+          missing.length > 0 &&
+          Math.round(targets.reduce((sum, t) => sum + t.units * (unitRule(t) > 0 ? unitRule(t) : 1), 0)) ===
+            Math.round(line.shipQty);
+        if (assumedOne) {
+          weights = targets.map((t) => t.units * (unitRule(t) > 0 ? unitRule(t) : 1));
+        } else if (missing.length > 0) {
+          weights = targets.map((t) => t.units);
+          const missingNames = missing.map(nameOf);
           issues.push({
-            level: "warning",
-            kind: "unit_mismatch",
+            level: "error",
+            kind: "missing_unit_rule",
             shipmentId: source.shipmentId,
-            message: `行${line.lineNo}：入庫数×入数の合計（${liveCodes
-              .map((code) => `${unitsByCode.get(code)!.productCode} ${unitsByCode.get(code)!.units}×${rules.unitRules[code]}`)
-              .join(" + ")} = ${pieces}）が出荷数${line.shipQty}と一致しません。入庫数か入数を確認してください。`,
-            productCodes: liveCodes.map((code) => unitsByCode.get(code)!.productCode),
+            message: `行${line.lineNo}（出荷数${line.shipQty}）に ${targets.map(nameOf).join("・")} がまとまっています。${missingNames.join("・")} がNEの1個に何個入っているかを入れると、金額を正しく分けられます。`,
+            productCodes: targets.map(nameOf),
             line,
-            codeUnits: Object.fromEntries(liveCodes.map((code) => [unitsByCode.get(code)!.productCode, unitsByCode.get(code)!.units])),
+            codeUnits: Object.fromEntries(targets.map((t) => [nameOf(t), t.units])),
           });
-          for (const code of liveCodes) {
-            accFor(code).hasWarning = true;
-            accFor(code).messages.add("保存済みの個数と入荷数が不一致");
+          for (const t of targets) {
+            const acc = accAt(t.shipmentId, t.codeLc);
+            acc.hasError = true;
+            acc.messages.add("個数未入力のため仮計算");
+          }
+        } else {
+          weights = targets.map((t) => t.units * unitRule(t));
+          const pieces = weights.reduce((a, b) => a + b, 0);
+          if (Math.round(pieces) !== Math.round(line.shipQty)) {
+            issues.push({
+              level: "warning",
+              kind: "unit_mismatch",
+              shipmentId: source.shipmentId,
+              message: `行${line.lineNo}：入庫数×入数の合計（${targets
+                .map((t) => `${nameOf(t)} ${t.units}×${unitRule(t)}`)
+                .join(" + ")} = ${pieces}）が出荷数${line.shipQty}と一致しません。入庫数か入数を確認してください。`,
+              productCodes: targets.map(nameOf),
+              line,
+              codeUnits: Object.fromEntries(targets.map((t) => [nameOf(t), t.units])),
+            });
+            for (const t of targets) {
+              const acc = accAt(t.shipmentId, t.codeLc);
+              acc.hasWarning = true;
+              acc.messages.add("保存済みの個数と入荷数が不一致");
+            }
           }
         }
       }
       const weightTotal = weights.reduce((a, b) => a + b, 0);
-      liveCodes.forEach((code, i) => {
-        addScaled(accFor(code).total, cost, weightTotal > 0 ? weights[i] / weightTotal : 1 / liveCodes.length);
+      targets.forEach((t, i) => {
+        allocate(t, weightTotal > 0 ? weights[i] / weightTotal : 1 / targets.length);
       });
       allocatedJpy += lineTotal;
     }
