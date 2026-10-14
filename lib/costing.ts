@@ -74,7 +74,8 @@ function fmtYen(value: number): string {
 
 /** 便の各明細行の円建てコスト内訳を計算する */
 export function computeLineCosts(source: ShipmentCostSource): {
-  lineCosts: Map<number, CostBreakdown>;
+  /** 行（オブジェクト）ごとの費用。配送依頼書NOは親子の便で重複するので、行そのものをキーにする */
+  lineCosts: Map<CostLine, CostBreakdown>;
   intlMethod: "box" | "value";
   chargeableKg: number;
 } {
@@ -93,9 +94,9 @@ export function computeLineCosts(source: ShipmentCostSource): {
         ? line.shipQty / qtyTotal
         : 0;
 
-  const lineCosts = new Map<number, CostBreakdown>();
+  const lineCosts = new Map<CostLine, CostBreakdown>();
   for (const line of shipped) {
-    lineCosts.set(line.seq, {
+    lineCosts.set(line, {
       goods: lineGoodsCny(line) * rate,
       option: line.optionCny * rate,
       domestic: domesticAllCny * rate * share(line),
@@ -141,19 +142,19 @@ export function computeLineCosts(source: ShipmentCostSource): {
               : 0;
         intl += freight * part;
       }
-      lineCosts.get(line.seq)!.intl = intl;
+      lineCosts.get(line)!.intl = intl;
       allocated += intl;
     }
     // どの明細も入っていない箱があった場合などの残りは金額比で配分
     const leftover = source.intlFreightJpy - allocated;
     if (Math.abs(leftover) > 0.5) {
-      for (const line of shipped) lineCosts.get(line.seq)!.intl += leftover * share(line);
+      for (const line of shipped) lineCosts.get(line)!.intl += leftover * share(line);
     }
     return { lineCosts, intlMethod: "box", chargeableKg };
   }
 
   for (const line of shipped) {
-    lineCosts.get(line.seq)!.intl = source.intlFreightJpy * share(line);
+    lineCosts.get(line)!.intl = source.intlFreightJpy * share(line);
   }
   return { lineCosts, intlMethod: "value", chargeableKg };
 }
@@ -354,7 +355,7 @@ export function computeCosts(
     let hasUnallocatedError = false;
 
     for (const line of source.lines) {
-      const cost = lineCosts.get(line.seq);
+      const cost = lineCosts.get(line);
       if (!cost) continue;
       const lineTotal = breakdownTotal(cost);
       totalJpy += lineTotal;
@@ -608,6 +609,49 @@ export function computeCosts(
       ignoredJpy,
       unallocatedJpy,
     });
+  }
+
+  // 同じオーダー（●▲の行）が複数の便に分かれて届いた商品は、便をまたいで原価を合計し、
+  // 入庫数で割った同じ単価にそろえる（セット品の構成品が別々の便で届くと、便ごとの単価が大きくばらつくため）
+  {
+    const shipmentsByRow = new Map<string, Set<string>>();
+    for (const [key, units] of unitsByRowShipment) {
+      if (units <= 0) continue;
+      const [rowId, shipmentId] = key.split("@@");
+      const set = shipmentsByRow.get(rowId) ?? new Set<string>();
+      set.add(shipmentId);
+      shipmentsByRow.set(rowId, set);
+    }
+    // 商品コードごとに、同じ行でつながる便をまとめる
+    const groups = new Map<string, Array<Set<string>>>();
+    for (const [rowId, shipmentSet] of shipmentsByRow) {
+      if (shipmentSet.size < 2) continue;
+      const codeLc = rowById.get(rowId)?.productCodeLc;
+      if (!codeLc) continue;
+      const list = groups.get(codeLc) ?? [];
+      const merged = new Set(shipmentSet);
+      const rest: Array<Set<string>> = [];
+      for (const g of list) {
+        if ([...g].some((id) => merged.has(id))) g.forEach((id) => merged.add(id));
+        else rest.push(g);
+      }
+      groups.set(codeLc, [...rest, merged]);
+    }
+    for (const [codeLc, list] of groups) {
+      for (const shipmentSet of list) {
+        const accs = [...shipmentSet]
+          .map((id) => codeMap.get(`${id}@@${codeLc}`))
+          .filter((acc): acc is CodeAccumulator => Boolean(acc) && acc!.units > 0);
+        if (accs.length < 2) continue;
+        const units = accs.reduce((sum, acc) => sum + acc.units, 0);
+        const pooled = emptyBreakdown();
+        for (const acc of accs) addScaled(pooled, acc.total, 1);
+        for (const acc of accs) {
+          acc.total = scaled(pooled, acc.units / units);
+          acc.messages.add(`${accs.length}便に分かれて届いたため、便をまたいで平均した単価`);
+        }
+      }
+    }
   }
 
   // 梱包数とオーダー数が違う商品（セット品なら問題なし。分納なら届いた数に直す）
