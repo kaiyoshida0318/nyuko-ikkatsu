@@ -12,8 +12,12 @@ export type CostToken = {
 export type CostLineBox = { boxNo: number; qty: number };
 
 export type CostLine = {
-  /** 配送依頼書NO（シート内の行番号） */
+  /** 配送依頼書NO（シート内の行番号）。親子の便では親・子それぞれ1から振られるので重複することがある */
   lineNo: number;
+  /** ファイル内での行の通し番号（0から）。費用の計算ではこちらをキーにする */
+  seq: number;
+  /** この行の配送依頼書番号（親子の便では親と子が混ざる） */
+  lineShipmentId: string;
   orderNo: string;
   itemNo: string;
   productInfo: string;
@@ -92,6 +96,7 @@ export type CostIssueKind =
   | "no_cost_data"
   | "intl_fallback"
   | "absent_share"
+  | "duplicate_shipment"
   | "quantity_mismatch"
   | "parse";
 

@@ -61,6 +61,13 @@ function lineGoodsCny(line: CostLine): number {
   return line.unitPriceCny * line.shipQty;
 }
 
+/** 「行N」。親子の便で子の行なら「P…の行N」 */
+function lineLabel(source: ShipmentCostSource, line: CostLine): string {
+  return line.lineShipmentId && line.lineShipmentId !== source.shipmentId
+    ? `${line.lineShipmentId} の行${line.lineNo}`
+    : `行${line.lineNo}`;
+}
+
 function fmtYen(value: number): string {
   return `${Math.round(value).toLocaleString("ja-JP")}円`;
 }
@@ -88,7 +95,7 @@ export function computeLineCosts(source: ShipmentCostSource): {
 
   const lineCosts = new Map<number, CostBreakdown>();
   for (const line of shipped) {
-    lineCosts.set(line.lineNo, {
+    lineCosts.set(line.seq, {
       goods: lineGoodsCny(line) * rate,
       option: line.optionCny * rate,
       domestic: domesticAllCny * rate * share(line),
@@ -134,19 +141,19 @@ export function computeLineCosts(source: ShipmentCostSource): {
               : 0;
         intl += freight * part;
       }
-      lineCosts.get(line.lineNo)!.intl = intl;
+      lineCosts.get(line.seq)!.intl = intl;
       allocated += intl;
     }
     // どの明細も入っていない箱があった場合などの残りは金額比で配分
     const leftover = source.intlFreightJpy - allocated;
     if (Math.abs(leftover) > 0.5) {
-      for (const line of shipped) lineCosts.get(line.lineNo)!.intl += leftover * share(line);
+      for (const line of shipped) lineCosts.get(line.seq)!.intl += leftover * share(line);
     }
     return { lineCosts, intlMethod: "box", chargeableKg };
   }
 
   for (const line of shipped) {
-    lineCosts.get(line.lineNo)!.intl = source.intlFreightJpy * share(line);
+    lineCosts.get(line.seq)!.intl = source.intlFreightJpy * share(line);
   }
   return { lineCosts, intlMethod: "value", chargeableKg };
 }
@@ -175,7 +182,26 @@ export function computeCosts(
 ): CostResult {
   const issues: CostIssue[] = [];
   const rowById = new Map(extractedRows.map((row) => [row.rowId, row]));
-  const orderedSources = [...sources].sort((a, b) => a.shipmentId.localeCompare(b.shipmentId));
+  // 親子の便：親・子どちらのファイルにも両方の行・国際運賃・箱が入っている（中身が同じ）。
+  // 同じ便番号のファイルが複数あれば1つだけ使う（2つ使うと原価が2倍になる）
+  const seenShipments = new Map<string, string>();
+  const dedupedSources: ShipmentCostSource[] = [];
+  for (const source of sources) {
+    const first = seenShipments.get(source.shipmentId);
+    if (first !== undefined) {
+      issues.push({
+        level: "warning",
+        kind: "duplicate_shipment",
+        shipmentId: source.shipmentId,
+        message: `${source.sourceFile} は ${first} と同じ便（親子の便）の内容なので、原価の計算には1つだけ使いました。`,
+        productCodes: [],
+      });
+      continue;
+    }
+    seenShipments.set(source.shipmentId, source.sourceFile);
+    dedupedSources.push(source);
+  }
+  const orderedSources = [...dedupedSources].sort((a, b) => a.shipmentId.localeCompare(b.shipmentId));
   const sourceById = new Map(orderedSources.map((source) => [source.shipmentId, source]));
 
   // 発注記録（商品DBの rakumart_order_records）。注文番号＋商品番号 → 商品コード → 記録
@@ -328,7 +354,7 @@ export function computeCosts(
     let hasUnallocatedError = false;
 
     for (const line of source.lines) {
-      const cost = lineCosts.get(line.lineNo);
+      const cost = lineCosts.get(line.seq);
       if (!cost) continue;
       const lineTotal = breakdownTotal(cost);
       totalJpy += lineTotal;
@@ -378,7 +404,7 @@ export function computeCosts(
           level: "warning",
           kind: "absent_share",
           shipmentId: source.shipmentId,
-          message: `行${line.lineNo}（出荷数${line.shipQty}）には ${absentCodes.join("・")} の分も含まれていますが、本体が読み込んだ便に届いていないため、${targets.map(nameOf).join("・")} の原価に含めています（${fmtYen(lineTotal)}）。`,
+          message: `${lineLabel(source, line)}（出荷数${line.shipQty}）には ${absentCodes.join("・")} の分も含まれていますが、本体が読み込んだ便に届いていないため、${targets.map(nameOf).join("・")} の原価に含めています（${fmtYen(lineTotal)}）。`,
           productCodes: [...absentCodes, ...targets.map(nameOf)],
           line,
           amountJpy: lineTotal,
@@ -480,7 +506,7 @@ export function computeCosts(
           level: "warning",
           kind: "deleted_line",
           shipmentId: source.shipmentId,
-          message: `行${line.lineNo}（${line.tokens.map((t) => t.productCode).join(", ")}）は抽出結果で削除または入庫数0のため、${fmtYen(lineTotal)}は原価に入っていません。`,
+          message: `${lineLabel(source, line)}（${line.tokens.map((t) => t.productCode).join(", ")}）は抽出結果で削除または入庫数0のため、${fmtYen(lineTotal)}は原価に入っていません。`,
           productCodes: line.tokens.map((t) => t.productCode),
           line,
           amountJpy: lineTotal,
@@ -517,7 +543,7 @@ export function computeCosts(
             level: "error",
             kind: "missing_unit_rule",
             shipmentId: source.shipmentId,
-            message: `行${line.lineNo}（出荷数${line.shipQty}）に ${targets.map(nameOf).join("・")} がまとまっています。${missingNames.join("・")} がNEの1個に何個入っているかを入れると、金額を正しく分けられます。`,
+            message: `${lineLabel(source, line)}（出荷数${line.shipQty}）に ${targets.map(nameOf).join("・")} がまとまっています。${missingNames.join("・")} がNEの1個に何個入っているかを入れると、金額を正しく分けられます。`,
             productCodes: targets.map(nameOf),
             line,
             codeUnits: Object.fromEntries(targets.map((t) => [nameOf(t), t.units])),
@@ -535,7 +561,7 @@ export function computeCosts(
               level: "warning",
               kind: "unit_mismatch",
               shipmentId: source.shipmentId,
-              message: `行${line.lineNo}：入庫数×入数の合計（${targets
+              message: `${lineLabel(source, line)}：入庫数×入数の合計（${targets
                 .map((t) => `${nameOf(t)} ${t.units}×${unitRule(t)}`)
                 .join(" + ")} = ${pieces}）が出荷数${line.shipQty}と一致しません。入庫数か入数を確認してください。`,
               productCodes: targets.map(nameOf),
