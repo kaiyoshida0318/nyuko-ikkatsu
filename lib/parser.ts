@@ -290,10 +290,6 @@ export async function parsePackingFiles(
   const otherRows: OtherPackingRow[] = [];
   // uniqueKey → [付属品だけと判定された便の数, 出てきた便の数, 理由]
   const accessoryOnly = new Map<string, { suspect: number; seen: number; reasons: string[] }>();
-  // 親子の便：親・子どちらのファイルにも同じ梱包リスト（全行）が入っている。
-  // 梱包リスト先頭の「配送依頼書 P…」と行の中身が同じファイルは1つだけ読む（梱包数の二重加算・「その他」の重複を防ぐ）
-  const seenPackingLists = new Map<string, string>();
-  const duplicateFiles: string[] = [];
 
   for (const file of files) {
     const buffer = await file.arrayBuffer();
@@ -310,20 +306,6 @@ export async function parsePackingFiles(
       defval: "",
       blankrows: false,
     });
-
-    const packingShipment = rows
-      .slice(0, 5)
-      .flatMap((row) => (row ?? []).map((cell) => String(cell ?? "").trim()))
-      .find((cell) => /^P\d{10,}-\d+$/.test(cell)) ?? "";
-    if (packingShipment) {
-      const contentKey = `${packingShipment}__${JSON.stringify(rows.slice(1))}`;
-      const first = seenPackingLists.get(contentKey);
-      if (first !== undefined) {
-        duplicateFiles.push(`${file.name}（${first} と同じ便 ${packingShipment}）`);
-        continue;
-      }
-      seenPackingLists.set(contentKey, file.name);
-    }
 
     let headerRowIndex = -1;
     let noteColIndex = -1;
@@ -493,7 +475,7 @@ export async function parsePackingFiles(
     throw new Error("P~.xlsx から入庫データを1件も抽出できませんでした。");
   }
 
-  return { extracted, otherRows, duplicateFiles };
+  return { extracted, otherRows };
 }
 
 export async function parseOrderCsv(file: File): Promise<OrderRecord[]> {

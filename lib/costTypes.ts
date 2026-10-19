@@ -12,12 +12,8 @@ export type CostToken = {
 export type CostLineBox = { boxNo: number; qty: number };
 
 export type CostLine = {
-  /** 配送依頼書NO（シート内の行番号）。親子の便では親・子それぞれ1から振られるので重複することがある */
+  /** 配送依頼書NO（シート内の行番号） */
   lineNo: number;
-  /** ファイル内での行の通し番号（0から）。費用の計算ではこちらをキーにする */
-  seq: number;
-  /** この行の配送依頼書番号（親子の便では親と子が混ざる） */
-  lineShipmentId: string;
   orderNo: string;
   itemNo: string;
   productInfo: string;
@@ -57,24 +53,11 @@ export type MaterialRule = {
   note?: string;
 };
 
-/** 発注記録（商品DBの rakumart_order_records）の1行・1商品分 */
-export type OrderLineRecord = {
-  /** main = 本体の行（入庫数をこの便に数える） / accessory = 付属品の行（費用だけ乗せる） */
-  role: "main" | "accessory";
-  /** NEの1単位あたりの使用数（レシピの数量倍率） */
-  multiplier: number;
-};
-
 export type CostRules = {
   /** 1行に複数コードがある行で使う「1単位あたりの個数（入数）」。キーは商品コード小文字 */
   unitRules: Record<string, number>;
   /** キーは materialRuleKey(orderNo, itemNo) */
   materialRules: Record<string, MaterialRule>;
-  /**
-   * 発注記録。キーは materialRuleKey(注文番号, 商品番号) → 商品コード小文字 → 記録。
-   * ある行・ある商品の記録があれば、入数マスタより優先して按分と本体／付属品の判定に使う。
-   */
-  lineRecords?: Record<string, Record<string, OrderLineRecord>>;
 };
 
 export type CostBreakdown = {
@@ -95,8 +78,6 @@ export type CostIssueKind =
   | "no_units"
   | "no_cost_data"
   | "intl_fallback"
-  | "absent_share"
-  | "duplicate_shipment"
   | "quantity_mismatch"
   | "parse";
 

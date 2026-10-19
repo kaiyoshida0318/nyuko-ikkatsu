@@ -145,8 +145,6 @@ export function parseCostSheetRows(
     const note = text(row[cNote]);
     lines.push({
       lineNo,
-      seq: lines.length,
-      lineShipmentId: cShipment >= 0 ? text(row[cShipment]) : "",
       orderNo: cOrderNo >= 0 ? text(row[cOrderNo]) : "",
       itemNo: cItemNo >= 0 ? text(row[cItemNo]) : "",
       productInfo: cInfo >= 0 ? text(row[cInfo]) : "",

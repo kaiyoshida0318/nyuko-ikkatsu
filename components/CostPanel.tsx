@@ -340,7 +340,7 @@ function IssueCard({
 
       {issue.line && (
         <dl className="cost-line-facts">
-          <div><dt>配送依頼書</dt><dd>{issue.line.lineShipmentId && issue.line.lineShipmentId !== issue.shipmentId ? `${issue.line.lineShipmentId} の ` : ""}{issue.line.lineNo}行目（商品番号 {issue.line.itemNo}）</dd></div>
+          <div><dt>配送依頼書</dt><dd>{issue.line.lineNo}行目（商品番号 {issue.line.itemNo}）</dd></div>
           <div><dt>商品情報</dt><dd>{issue.line.productInfo.replace(/\n/g, " ") || "—"}</dd></div>
           <div><dt>入荷数</dt><dd>{count(issue.line.shipQty)}個（単価 {issue.line.unitPriceCny}元）</dd></div>
           {issue.amountJpy !== undefined && <div><dt>費用</dt><dd>{yen(issue.amountJpy)}</dd></div>}
@@ -407,18 +407,6 @@ function describeIssue(issue: CostIssue): { title: string; body: string } {
         body:
           "付属品の入荷数と、選択した商品の使用数が一致しません。按分の比率としては使用できるため、計算は継続しています。" +
           "1個あたりの使用数に誤りがあれば修正してください。",
-      };
-    case "absent_share":
-      return {
-        title: "本体が届いていない商品分の付属品費用を、届いた商品に含めています",
-        body:
-          `この付属品の行には、本体がまだ届いていない商品の分も含まれています。費用は ${codes} のうち届いた商品の原価に含めて計算しています。` +
-          "本体が届いた便と一緒に読み込むと、その商品の原価に正しく振り分けられます。",
-      };
-    case "duplicate_shipment":
-      return {
-        title: "同じ便（親子の便）のファイルが2つ読み込まれています",
-        body: "親子の便は、親・子どちらのファイルにも両方の行と国際運賃が入っています。原価が2倍にならないよう、計算には1つだけ使いました。入庫・オーダーの消し込みにも影響はありません。",
       };
     case "deleted_line":
       return {

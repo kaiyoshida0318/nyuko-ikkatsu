@@ -55,8 +55,6 @@ export type OtherPackingRow = {
 export type PackingParseResult = {
   extracted: ExtractedRow[];
   otherRows: OtherPackingRow[];
-  /** 親子の便で、すでに読んだファイルと同じ内容だったため読み飛ばしたファイル */
-  duplicateFiles?: string[];
 };
 
 export type ProductHubRecord = {

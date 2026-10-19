@@ -17,7 +17,6 @@ import { computeCosts } from "@/lib/costing";
 import {
   buildCostRegistrationPayload,
   fetchCostRules,
-  fetchOrderLineRecords,
   registerCostReceipt,
   saveMaterialRule,
   saveUnitRule,
@@ -1623,8 +1622,6 @@ export default function NyukoApp() {
   const [costRules, setCostRules] = useState<CostRules>(emptyCostRules);
   const [costRulesLoading, setCostRulesLoading] = useState(false);
   const [costRulesError, setCostRulesError] = useState<string | null>(null);
-  // 発注記録（商品DB）：配送依頼書の注文番号＋商品番号ごとの本体／付属品と倍率
-  const [orderLineRecords, setOrderLineRecords] = useState<NonNullable<CostRules["lineRecords"]>>({});
   const [costOnlyMode, setCostOnlyMode] = useState(false);
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
   const [costRegistration, setCostRegistration] =
@@ -2469,37 +2466,10 @@ ${detail}`);
     }
   }
 
-  const costOrderNosKey = useMemo(() => {
-    const orderNos = new Set<string>();
-    for (const source of result?.costSources ?? []) {
-      for (const line of source.lines) if (line.orderNo) orderNos.add(line.orderNo);
-    }
-    return [...orderNos].sort().join("|");
-  }, [result]);
-
-  useEffect(() => {
-    if (authLoading || !isLoggedIn || !costOrderNosKey) {
-      setOrderLineRecords({});
-      return;
-    }
-    let cancelled = false;
-    fetchOrderLineRecords(costOrderNosKey.split("|"))
-      .then(({ records }) => {
-        if (!cancelled) setOrderLineRecords(records);
-      })
-      .catch(() => {
-        // 発注記録が読めなくても、従来どおりの按分で計算を続ける
-        if (!cancelled) setOrderLineRecords({});
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, isLoggedIn, costOrderNosKey]);
-
   const costResult = useMemo(() => {
     if (!result?.costSources || result.costSources.length === 0) return null;
-    return computeCosts(result.costSources, result.extracted, { ...costRules, lineRecords: orderLineRecords });
-  }, [result, costRules, orderLineRecords]);
+    return computeCosts(result.costSources, result.extracted, costRules);
+  }, [result, costRules]);
 
   const neRowsWithGenka = useMemo(() => {
     if (!result) return [];
