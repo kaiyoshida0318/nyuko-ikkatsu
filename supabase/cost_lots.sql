@@ -475,7 +475,8 @@ select
   case when sum(qty_remaining) > 0
        then round(sum(qty_remaining * coalesce(unit_cost, 0)) / sum(qty_remaining), 2)
   end                                                        as avg_unit_cost,
-  (array_agg(unit_cost order by received_at desc, id desc)
+  -- 最新の便＝配送依頼書の日付がいちばん新しい便（登録した順ではない）。NEに書く原価と同じ決め方
+  (array_agg(unit_cost order by shipment_id desc, received_at desc, id desc)
      filter (where lot_type = 'shipment'))[1]               as latest_unit_cost,
   count(*) filter (where qty_remaining > 0)::integer         as open_lots,
   bool_or(needs_review and qty_remaining > 0)                as needs_review
