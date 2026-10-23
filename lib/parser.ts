@@ -290,6 +290,8 @@ export async function parsePackingFiles(
   const otherRows: OtherPackingRow[] = [];
   // uniqueKey → [付属品だけと判定された便の数, 出てきた便の数, 理由]
   const accessoryOnly = new Map<string, { suspect: number; seen: number; reasons: string[] }>();
+  // 行（注文番号+商品番号）ごとの梱包数の合計と、その行に書かれた●▲（全ファイル通して）
+  const packedByGroup = new Map<string, { packing: number; tokens: Map<string, number> }>();
 
   for (const file of files) {
     const buffer = await file.arrayBuffer();
@@ -412,6 +414,13 @@ export async function parsePackingFiles(
         }
 
         unique.set(uniqueKey, current);
+        const info = packedByGroup.get(packedGroupKey) ?? { packing: 0, tokens: new Map<string, number>() };
+        info.tokens.set(uniqueKey, quantity);
+        packedByGroup.set(packedGroupKey, info);
+      }
+      if (packingQuantity !== null) {
+        const info = packedByGroup.get(packedGroupKey);
+        if (info) info.packing += packingQuantity;
       }
     }
 
@@ -425,6 +434,19 @@ export async function parsePackingFiles(
         entry.reasons.push(`${file.name}: ${reason}`);
       }
       accessoryOnly.set(token, entry);
+    }
+  }
+
+  // 1行に複数の●▲がある行（例：黒100・棕50・灰50 を1行でまとめて注文し、梱包数200）は、
+  // ●▲の数量の合計が梱包数と一致すれば、その行の梱包数を各商品の数量で分けて持つ（各色に200と出さない）。
+  // 一致しないとき（分納など）は、これまでどおり行の梱包数のまま（数量不一致として確認してもらう）。
+  for (const [group, info] of packedByGroup) {
+    if (info.tokens.size < 2) continue;
+    const sum = [...info.tokens.values()].reduce((a, b) => a + b, 0);
+    if (sum !== info.packing) continue;
+    for (const [token, quantity] of info.tokens) {
+      const row = unique.get(token);
+      if (row?.packedGroups.has(group)) row.packedGroups.set(group, quantity);
     }
   }
 
